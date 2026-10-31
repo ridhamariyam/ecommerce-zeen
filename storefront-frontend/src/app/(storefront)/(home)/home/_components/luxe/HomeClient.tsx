@@ -16,6 +16,7 @@ import type { Offer } from '@/types/orders';
 import styles from './Home.module.css';
 import { CampaignBanner } from './CampaignBanner';
 import { CampaignSplit } from './CampaignSplit';
+import { GarmentRail } from './GarmentRail';
 import { HomeIntro } from './HomeIntro';
 import { ArrowLeftIcon, ArrowRightIcon } from './Icons';
 
@@ -252,7 +253,7 @@ function ProductTiles({ products, label }: { products: { product: ProductSummary
     const tag = badge(product);
     return (
       <Link
-        key={`${clone ? 'clone-' : ''}${product.id}`}
+        key={`${clone ? `clone-${copy}-` : ''}${product.id}`}
         href={product.slug ? `/products/${encodeURIComponent(product.slug)}` : `/single-product/${product.id}`}
         className={`${styles.tile} ${clone ? '' : styles.tileReveal}`}
         data-tile
@@ -392,6 +393,8 @@ export default function HomeClient({
           brings you styles that celebrate your individuality and make every moment beautiful.
         </p>
       </section>
+
+      <GarmentRail products={photographed} />
 
       <CampaignSplit />
 

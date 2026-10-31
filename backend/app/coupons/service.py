@@ -460,17 +460,6 @@ class CouponService:
             .execution_options(populate_existing=True)
         )
 
-    async def validate_and_calculate(
-        self,
-        code: str,
-        subtotal: Decimal,
-        customer_id: UUID,
-    ) -> tuple[Coupon, Decimal]:
-        """Validate a coupon and calculate its discount without consuming it."""
-        coupon = await self.coupons.get_by_code(code)
-        discount = await self.validated_discount(coupon, subtotal, customer_id)
-        return coupon, discount
-
     async def lock_and_validate(
         self,
         code: str,
@@ -480,27 +469,6 @@ class CouponService:
         """Lock, validate, and calculate a coupon discount."""
         coupon = await self.coupons.get_by_code_for_update(code)
         discount = await self.validated_discount(coupon, subtotal, customer_id)
-        return coupon, discount
-
-    async def redeem_for_order(
-        self,
-        code: str,
-        subtotal: Decimal,
-        customer_id: UUID,
-        order_id: UUID,
-    ) -> tuple[Coupon, Decimal]:
-        """Lock, validate, and record a coupon redemption."""
-        coupon, discount = await self.lock_and_validate(
-            code,
-            subtotal,
-            customer_id,
-        )
-        await self.record_redemption(
-            coupon,
-            customer_id,
-            order_id,
-            discount,
-        )
         return coupon, discount
 
     async def record_redemption(

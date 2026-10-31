@@ -16,7 +16,7 @@ interface CartContextType {
   closeCartDrawer: () => void;
   openCartDrawer: () => void;
   /** Each mutation resolves to the API's error message, or null when it succeeded. */
-  addToCart: (variantId: string, quantity: number) => Promise<string | null>;
+  addToCart: (variantId: string, quantity: number, options?: { openDrawer?: boolean }) => Promise<string | null>;
   updateQuantity: (itemId: string, quantity: number) => Promise<string | null>;
   removeFromCart: (itemId: string) => Promise<string | null>;
   clearCart: () => Promise<string | null>;
@@ -75,7 +75,7 @@ export function CartProvider({ initialCart, children }: { initialCart: Cart; chi
         cartDrawerOpen,
         openCartDrawer: () => setCartDrawerOpen(true),
         closeCartDrawer: () => setCartDrawerOpen(false),
-        addToCart: (variantId, quantity) => run(addCartItem(variantId, quantity), true),
+        addToCart: (variantId, quantity, options) => run(addCartItem(variantId, quantity), options?.openDrawer ?? true),
         updateQuantity: (itemId, quantity) => run(setCartItemQuantity(itemId, quantity)),
         removeFromCart: itemId => run(removeCartLine(itemId)),
         clearCart: () => run(clearCart()),

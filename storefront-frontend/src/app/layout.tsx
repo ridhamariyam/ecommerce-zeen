@@ -4,8 +4,9 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
   title: 'ZEEN',
-  description: 'E-commerce storefront for ZEEN.',
+  description: "Women's ethnic and casual wear from ZEEN.",
 };
 
 export const viewport: Viewport = {

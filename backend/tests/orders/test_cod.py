@@ -252,6 +252,26 @@ async def test_only_an_advance_can_be_marked_paid_by_hand(
     assert response.status_code == 409
 
 
+async def test_an_advance_is_recorded_once_and_never_on_a_cancelled_order(
+    client, admin_headers, customer_auth, order_in, set_status
+):
+    await _cod(client, admin_headers, advance_amount="100.00")
+    paid_order = await order_in(customer_auth)
+    paid_advance = next(p for p in paid_order["payments"] if p["purpose"] == "ADVANCE")
+    url = f"{PAYMENTS}/{paid_advance['id']}/mark-paid"
+    await client.post(url, headers=admin_headers)
+
+    repeated = await client.post(url, headers=admin_headers)
+
+    cancelled_order = await order_in(customer_auth)
+    advance = next(p for p in cancelled_order["payments"] if p["purpose"] == "ADVANCE")
+    await set_status(cancelled_order["id"], "CANCELLED")
+    refused = await client.post(f"{PAYMENTS}/{advance['id']}/mark-paid", headers=admin_headers)
+
+    assert repeated.status_code == 409
+    assert refused.status_code == 409
+
+
 async def test_the_cod_report_counts_and_sums(
     client, admin_headers, customer_auth, order_in, set_status
 ):

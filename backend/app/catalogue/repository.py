@@ -377,12 +377,6 @@ class ProductOptionRepository(TenantScopedRepository[ProductOption]):
             .order_by(ProductOption.position, ProductOption.name)
         )
 
-    async def get_by_name(self, product_id: UUID, name: str) -> ProductOption | None:
-        return await self.find_one(
-            ProductOption.product_id == product_id, ProductOption.name == name
-        )
-
-
 class VariantOptionRepository(TenantScopedRepository[ProductVariantOption]):
     model = ProductVariantOption
 

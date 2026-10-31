@@ -24,7 +24,7 @@ from app.orders.models import Order
 from app.orders.repository import OrderRepository
 from app.orders.service import OrderService
 from app.payments import razorpay
-from app.payments.constants import PaymentStatus
+from app.payments.constants import PaymentPurpose, PaymentStatus
 from app.payments.models import Payment
 from app.payments.repository import PaymentRepository
 from app.tenants.models import Tenant
@@ -229,6 +229,39 @@ class PaymentService:
         except Exception:
             await self.session.rollback()
             raise
+
+    async def mark_advance_paid(self, payment_id: UUID) -> Payment:
+        """Record a COD advance the store has received; the balance stays due on delivery."""
+        order_id = (await self.get(payment_id)).order_id
+        try:
+            order = await self.orders.lock(order_id)
+            if order is None:
+                raise NotFoundError(ORDER_NOT_FOUND, error_code=OrderErrorCode.NOT_FOUND)
+            payment = await self.get(payment_id)
+            await self.session.refresh(payment)
+            if payment.purpose != PaymentPurpose.ADVANCE.value:
+                raise ConflictError(
+                    "Only a COD advance can be marked as paid by hand",
+                    error_code=PaymentErrorCode.NOT_PAYABLE,
+                )
+            if order.status == OrderStatus.CANCELLED.value:
+                raise ConflictError(
+                    "The advance of a cancelled order cannot be marked as paid",
+                    error_code=PaymentErrorCode.NOT_PAYABLE,
+                )
+            if payment.status != PaymentStatus.PENDING.value:
+                raise ConflictError(
+                    "This advance has already been settled",
+                    error_code=PaymentErrorCode.ALREADY_RECORDED,
+                )
+            payment.status = PaymentStatus.PAID.value
+            order.payment_status = OrderPaymentStatus.PARTIALLY_PAID.value
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+
+        return await self.get(payment_id)
 
     async def refund(self, order_id: UUID) -> Order:
         """Refund a cancelled order's captured Razorpay payment in full, once."""

@@ -19,6 +19,7 @@ import {
   DEFAULT_SORT,
   EMPTY_FILTERS,
   activeFilterCount,
+  PRODUCTS_COLLECTION_SLUG,
   collectionPath,
   cleanPrice,
   collectionQuery,
@@ -50,6 +51,9 @@ async function findCategory(slug: string): Promise<CategoryStorefront | undefine
 
 /** Page metadata for the collection with this slug. */
 export async function collectionMetadata(slug: string): Promise<Metadata> {
+  if (slug === PRODUCTS_COLLECTION_SLUG) {
+    return { title: 'Shop | Zeen', description: 'Shop every Zeen collection.' };
+  }
   const category = await findCategory(slug).catch(() => undefined);
   if (!category) return { title: 'Collection | Zeen' };
   return {
@@ -77,13 +81,17 @@ function intersects(selected: string[], values: Set<string> | undefined): boolea
 }
 
 /**
- * The collection listing for one category, shared by /collections/[slug]
- * and /products (see `collectionPath`).
+ * The collection listing, shared by /collections/[slug] (one category) and
+ * /products (the whole catalogue, see `collectionPath`).
  */
 export default async function CollectionView({ slug, query }: { slug: string; query: CollectionSearchParams }) {
   const categoriesPage = await catalogueApi.listCategories({ page_size: CATALOGUE_FETCH_SIZE });
+  const showAll = slug === PRODUCTS_COLLECTION_SLUG;
   const category = categoriesPage.items.find(item => categorySlug(item.name) === slug);
-  if (!category) notFound();
+  if (!showAll && !category) notFound();
+
+  const title = category?.name ?? 'Shop';
+  const description = category?.description ?? (showAll ? 'Every piece in the collection.' : null);
 
   const sort: CollectionSort = isCollectionSort(query.sort) ? query.sort : DEFAULT_SORT;
   const requestedPage = Math.max(1, Number(query.page ?? 1) || 1);
@@ -92,7 +100,7 @@ export default async function CollectionView({ slug, query }: { slug: string; qu
     // Sort and price are applied by the backend.
     catalogueApi.listProducts({
       page_size: CATALOGUE_FETCH_SIZE,
-      category_id: category.id,
+      category_id: category?.id,
       sort: toBackendSort(sort),
       min_price: cleanPrice(query.min_price) || undefined,
       max_price: cleanPrice(query.max_price) || undefined,
@@ -101,7 +109,7 @@ export default async function CollectionView({ slug, query }: { slug: string; qu
     catalogueApi.listProducts({ page_size: CATALOGUE_FETCH_SIZE }),
     // Color/Size only exist as variant options on the search endpoint. If it
     // is unavailable those facets are hidden rather than shown empty.
-    searchApi.searchProducts({ category_id: category.id, size: CATALOGUE_FETCH_SIZE }).catch(() => null),
+    searchApi.searchProducts({ category_id: category?.id, size: CATALOGUE_FETCH_SIZE }).catch(() => null),
   ]);
 
   const colorsById = new Map<string, Set<string>>();
@@ -155,11 +163,11 @@ export default async function CollectionView({ slug, query }: { slug: string; qu
       name: item.name,
       href: collectionPath(categorySlug(item.name)),
       count: productCountByCategory.get(item.id) ?? 0,
-      active: item.id === category.id,
+      active: item.id === category?.id,
     }));
 
   const prices = catalogue.items
-    .filter(product => product.category_id === category.id)
+    .filter(product => !category || product.category_id === category.id)
     .flatMap(product => [product.price_from, product.price_to])
     .map(Number)
     .filter(value => Number.isFinite(value) && value > 0);
@@ -176,13 +184,13 @@ export default async function CollectionView({ slug, query }: { slug: string; qu
         <nav className={styles.crumb} aria-label="Breadcrumb">
           <Link href="/">Home</Link>
           <span aria-hidden="true">/</span>
-          <span aria-current="page">{category.name}</span>
+          <span aria-current="page">{title}</span>
         </nav>
-        <h1 className={styles.title}>{category.name}</h1>
-        {category.description && <p className={styles.description}>{category.description}</p>}
+        <h1 className={styles.title}>{title}</h1>
+        {description && <p className={styles.description}>{description}</p>}
       </section>
 
-      <section className={`${homeStyles.container} ${styles.listing}`} aria-label={`${category.name} products`}>
+      <section className={`${homeStyles.container} ${styles.listing}`} aria-label={`${title} products`}>
         <CollectionToolbar
           basePath={basePath}
           sort={sort}
@@ -197,7 +205,7 @@ export default async function CollectionView({ slug, query }: { slug: string; qu
 
         {visible.length === 0 ? (
           <div className={styles.empty}>
-            <p>{filtered ? 'No products match these filters.' : `No ${category.name.toLowerCase()} available yet.`}</p>
+            <p>{filtered ? 'No products match these filters.' : `No ${title.toLowerCase()} available yet.`}</p>
             {filtered && (
               <Link href={`${basePath}${collectionQuery(sort, EMPTY_FILTERS)}`} className={styles.outlineButton}>
                 Clear all

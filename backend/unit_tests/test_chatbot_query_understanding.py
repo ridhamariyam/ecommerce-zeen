@@ -44,7 +44,7 @@ from app.chatbot.schemas import QueryUnderstandingInput, SearchCriteria
         ),
         ("", SearchCriteria()),
         ("   ", SearchCriteria()),
-        ("Anarkali festive outfit", SearchCriteria(search="Anarkali festive outfit")),
+        ("Anarkali festive outfit", SearchCriteria(search="Anarkali outfit", occasion="Festive")),
         (
             "kurta under ₹0",
             SearchCriteria(search="kurta", max_price=Decimal("0")),

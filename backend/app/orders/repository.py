@@ -133,7 +133,3 @@ class OrderRepository(TenantScopedRepository[Order]):
         return await self.find_one(
             Order.id == order_id, Order.customer_id == customer_id
         )
-
-
-class OrderItemRepository(TenantScopedRepository[OrderItem]):
-    model = OrderItem

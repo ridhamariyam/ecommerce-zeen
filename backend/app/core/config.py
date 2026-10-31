@@ -151,6 +151,13 @@ class Settings(BaseSettings):
     razorpay_webhook_secret: str | None = None
     razorpay_api_url: str = "https://api.razorpay.com/v1"
     razorpay_timeout_seconds: float = 10.0
+    # The pair .env keeps per gateway environment; RAZORPAY_ENVIRONMENT picks
+    # one. An explicit RAZORPAY_KEY_ID / _KEY_SECRET still wins over both.
+    razorpay_environment: str = "sandbox"
+    sandbox_razorpay_api_key: str | None = None
+    sandbox_razorpay_api_secret: str | None = None
+    production_razorpay_api_key: str | None = None
+    production_razorpay_api_secret: str | None = None
 
     online_payment_expiry_minutes: int = 30
 
@@ -169,14 +176,25 @@ class Settings(BaseSettings):
         return self.environment.lower() in {"production", "prod"}
 
     @property
-    def is_testing(self) -> bool:
-        return self.environment.lower() in {"test", "testing"}
-
-    @property
     def api_docs_enabled(self) -> bool:
         if self.docs_enabled is None:
             return not self.is_production
         return self.docs_enabled
+
+    @model_validator(mode="after")
+    def _select_razorpay_credentials(self) -> Settings:
+        live = self.razorpay_environment.strip().lower() == "production"
+        key, secret = (
+            (self.production_razorpay_api_key, self.production_razorpay_api_secret)
+            if live
+            else (self.sandbox_razorpay_api_key, self.sandbox_razorpay_api_secret)
+        )
+        # .env.example ships "your_..." placeholders; those are not credentials.
+        if secret and secret.startswith("your_"):
+            key, secret = None, None
+        self.razorpay_key_id = self.razorpay_key_id or key
+        self.razorpay_key_secret = self.razorpay_key_secret or secret
+        return self
 
     @model_validator(mode="after")
     def _validate_production_safety(self) -> Settings:

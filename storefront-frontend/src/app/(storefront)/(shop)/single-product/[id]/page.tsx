@@ -35,7 +35,8 @@ const SingleProductPage = async ({
   try {
     product = slug ? await catalogueApi.getProductBySlug(slug) : await catalogueApi.getProduct(productKey);
   } catch (error) {
-    if (error instanceof ApiError && error.isNotFound) notFound();
+    // A malformed id can never match a product, so it is a 404 rather than a crash.
+    if (error instanceof ApiError && (error.isNotFound || error.code === 'VALIDATION_ERROR')) notFound();
     throw error;
   }
 

@@ -68,8 +68,8 @@ export function collectionQuery(sort: CollectionSort, filters: CollectionFilters
   return qs ? `?${qs}` : '';
 }
 
-/** The collection served as the main product listing at /products. */
-export const PRODUCTS_COLLECTION_SLUG = 'women-kurtas';
+/** The whole catalogue, served as the main product listing at /products. */
+export const PRODUCTS_COLLECTION_SLUG = 'all';
 
 /** Where a collection lives: /products for the main one, /collections/<slug> otherwise. */
 export function collectionPath(slug: string): string {

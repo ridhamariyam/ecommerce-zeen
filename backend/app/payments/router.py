@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit.dependencies import AUDITED
 from app.auth.dependencies import require_customer, require_permission
 from app.auth.permissions import Permission
 from app.core import rate_limit
@@ -118,3 +119,19 @@ async def get_payment(
 ) -> ApiResponse[PaymentRead]:
     payment = await PaymentService(session, user.tenant_id).get(payment_id)
     return ok(payment_read(payment, tenant.currency), message="Payment retrieved")
+
+
+@admin_router.post(
+    "/{payment_id}/mark-paid",
+    response_model=ApiResponse[PaymentRead],
+    summary="Record a COD advance as received",
+    dependencies=AUDITED,
+)
+async def mark_advance_paid(
+    payment_id: UUID,
+    tenant: CurrentTenant,
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission(Permission.PAYMENTS_MANAGE)),
+) -> ApiResponse[PaymentRead]:
+    payment = await PaymentService(session, user.tenant_id).mark_advance_paid(payment_id)
+    return ok(payment_read(payment, tenant.currency), message="Advance marked as paid")

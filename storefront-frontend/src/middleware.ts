@@ -10,6 +10,7 @@ import {
   sessionCookieOptions,
 } from '@/lib/auth/cookies';
 import { SIGN_IN_PARAM } from '@/lib/auth/sign-in-url';
+import { LEGACY_ROUTES } from '@/constant/legacyRoutes';
 
 /**
  * Routes that need a signed-in customer.
@@ -19,6 +20,8 @@ import { SIGN_IN_PARAM } from '@/lib/auth/sign-in-url';
  */
 const CUSTOMER_PREFIXES = [
   '/account',
+  '/my-account',
+  '/check-out',
   '/checkout',
   '/order-confirmation',
   '/my-orders',
@@ -103,6 +106,9 @@ export async function middleware(request: NextRequest) {
       sessionCookieOptions(REFRESH_MAX_AGE_SECONDS),
     );
   }
+
+  // The template's demo pages stay reachable but out of search results.
+  if (LEGACY_ROUTES.has(pathname)) response.headers.set('X-Robots-Tag', 'noindex');
 
   if (refreshFailed) {
     response.cookies.delete(ACCESS_TOKEN_COOKIE);

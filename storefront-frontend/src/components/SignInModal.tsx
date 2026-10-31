@@ -251,6 +251,16 @@ export default function SignInModal({ next, onClose }: { next: string; onClose: 
       setError('Sign-in is still loading. Try again in a moment.');
       return;
     }
+    /*
+     * MSG91's hCaptcha refuses localhost, and its encryption needs the Web
+     * Crypto API that browsers only expose on HTTPS. Either way the widget
+     * logs to the console and calls neither callback, so say so now rather
+     * than sit on "Sending code…" until the watchdog fires.
+     */
+    if (!window.isSecureContext || ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      setError('Phone sign-in needs HTTPS on a real domain, so no code was sent. In development, use npm run dev:https.');
+      return;
+    }
 
     setError('');
     setPhone(digits);

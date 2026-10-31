@@ -28,12 +28,6 @@ class PaymentRepository(TenantScopedRepository[Payment]):
 
         return stmt.order_by(Payment.created_at.desc())
 
-    async def get_by_status(self, order_id: UUID, status: PaymentStatus) -> Payment | None:
-        """The order's payment in one particular state, if it has one."""
-        return await self.find_one(
-            Payment.order_id == order_id, Payment.status == status.value
-        )
-
     async def get_razorpay_payment_for_update(
         self, order_id: UUID, razorpay_order_id: str | None = None
     ) -> Payment | None:

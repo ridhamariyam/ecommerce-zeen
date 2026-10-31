@@ -1,0 +1,473 @@
+/* The hanging collection on the home page; see GarmentRail. */
+
+.section {
+  --ink: var(--zeen-midnight-navy);
+  --soft: rgb(13 19 60 / 55%);
+  --line: rgb(13 19 60 / 14%);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  container-type: inline-size;
+  overflow: hidden;
+  padding-block: clamp(12px, 2vw, 28px) clamp(56px, 7vw, 104px);
+  color: var(--ink);
+  font-family: Montserrat, Helvetica, sans-serif;
+  text-align: center;
+}
+
+.eyebrow {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 0 0 clamp(24px, 3vw, 40px);
+  padding-inline: 16px;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.eyebrowSoft {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+  color: var(--soft);
+}
+
+/* Widths come from the piece count, so any rail fills the row exactly. The
+   cut-outs carry margin, so a side-on piece needs half a card and the front
+   one a little under a whole card. */
+.track {
+  --card: min(340px, calc(100cqw / (0.5 * (var(--count) - 1) + 0.9)));
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.bar {
+  position: absolute;
+  inset: 4px 0 auto;
+  z-index: 1;
+  height: 7px;
+  background: linear-gradient(#4a3d33, #17120e 55%, #33291f);
+  box-shadow: 0 2px 3px rgb(13 19 60 / 22%);
+}
+
+.bar::before,
+.bar::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  width: 26px;
+  height: 21px;
+  border-radius: 2px;
+  background: linear-gradient(#4a3d33, #17120e);
+}
+
+.bar::before { left: 0; }
+.bar::after { right: 0; }
+
+.hanger {
+  position: relative;
+  flex: 0 0 calc(var(--card) * 0.5);
+  height: calc(var(--card) * 1.5 + 8px);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  perspective: 1100px;
+  transition: flex-basis 0.6s var(--ease);
+}
+
+.hanger[data-side='front'] {
+  z-index: 2;
+  flex-basis: calc(var(--card) * 0.9);
+}
+
+.hanger:focus-visible {
+  outline: none;
+}
+
+.hanger:focus-visible .card {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.card {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  display: block;
+  width: var(--card);
+  aspect-ratio: 2 / 3;
+  margin-left: calc(var(--card) / -2);
+  /* Wider than its slot; the pointer must land on the hanger's own slot. */
+  pointer-events: none;
+  transform: rotateY(0deg);
+  transform-origin: 50% 0;
+  transition: transform 0.6s var(--ease), filter 0.6s var(--ease);
+}
+
+.hanger[data-side='left'] .card {
+  transform: rotateY(16deg);
+  filter: brightness(0.95);
+}
+
+.hanger[data-side='right'] .card {
+  transform: rotateY(-16deg);
+  filter: brightness(0.95);
+}
+
+/* A piece left of the active one faces right, towards it, and vice versa. */
+.pose {
+  object-fit: contain;
+  object-position: 50% 0;
+  opacity: 0;
+  filter: drop-shadow(0 12px 12px rgb(13 19 60 / 16%));
+  transition: opacity 0.4s ease;
+}
+
+.hanger[data-side='front'] .pose[data-pose='front'],
+.hanger[data-side='left'] .pose[data-pose='right'],
+.hanger[data-side='right'] .pose[data-pose='left'] {
+  opacity: 1;
+}
+
+.tag {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(14px);
+  padding: 4px 7px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgb(13 19 60 / 22%);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.name {
+  min-height: 1.5em;
+  margin: clamp(24px, 3vw, 40px) 0 16px;
+  padding-inline: 16px;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.shop {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 26px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.25s, color 0.25s;
+}
+
+.shop:hover {
+  background: var(--ink);
+  color: #fff;
+}
+
+/* The open piece. */
+.view {
+  --ink: var(--zeen-midnight-navy);
+  --soft: rgb(13 19 60 / 55%);
+  --line: rgb(13 19 60 / 14%);
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow-y: auto;
+  background: #fff;
+  color: var(--ink);
+  font-family: Montserrat, Helvetica, sans-serif;
+  text-align: left;
+  animation: viewIn 0.35s ease;
+}
+
+.close {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.viewBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(24px, 5vw, 72px);
+  width: min(1120px, 100%);
+  min-height: 100%;
+  margin-inline: auto;
+  padding: 64px clamp(16px, 4vw, 48px) 32px;
+}
+
+.viewPhoto {
+  position: relative;
+  height: min(78dvh, 720px);
+  animation: viewIn 0.35s ease;
+}
+
+.viewPhoto img {
+  object-fit: contain;
+}
+
+.details {
+  max-width: 420px;
+}
+
+.count {
+  margin: 0 0 10px;
+  color: var(--soft);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+.title {
+  margin: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: clamp(24px, 2.6vw, 32px);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.price {
+  margin: 8px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.viewTab {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--soft);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.viewTab[aria-pressed='true'] {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+}
+
+.option {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin: 22px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.option legend {
+  float: none;
+  width: auto;
+  margin: 0 0 8px;
+  padding: 0;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.pill {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.pill[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.notice {
+  margin: 20px 0 0;
+  color: var(--soft);
+  font-size: 13px;
+}
+
+.add {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add:disabled {
+  background: rgb(13 19 60 / 12%);
+  color: var(--soft);
+  cursor: not-allowed;
+}
+
+.add[data-added]:disabled {
+  background: var(--ink);
+  color: #fff;
+}
+
+.viewCart {
+  margin-top: 12px;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ink);
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.foot a {
+  flex: none;
+  color: inherit;
+  font-weight: 600;
+}
+
+@keyframes viewIn {
+  from { opacity: 0; }
+}
+
+/* No hover on a phone: the pieces face front and the rail scrolls. */
+@media (max-width: 767px) {
+  .eyebrow {
+    gap: 10px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
+  }
+
+  .eyebrowSoft {
+    padding-left: 10px;
+  }
+
+  .scroller {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .track {
+    --card: 220px;
+    justify-content: flex-start;
+    width: max-content;
+    min-width: 100%;
+    padding-inline: 16px;
+  }
+
+  .hanger,
+  .hanger[data-side='front'] {
+    flex-basis: calc(var(--card) * 0.74);
+  }
+
+  .hanger[data-side] .card {
+    filter: none;
+    transform: none;
+  }
+
+  .hanger[data-side] .pose:not([data-pose='front']) {
+    opacity: 0;
+  }
+
+  .hanger[data-side] .pose[data-pose='front'] {
+    opacity: 1;
+  }
+
+  .name {
+    display: none;
+  }
+
+  .shop {
+    margin-top: 24px;
+  }
+
+  .viewBody {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .viewPhoto {
+    height: 56dvh;
+  }
+
+  .details {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hanger,
+  .card,
+  .pose,
+  .view,
+  .viewPhoto {
+    animation: none;
+    transition: none;
+  }
+}

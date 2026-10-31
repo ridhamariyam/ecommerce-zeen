@@ -51,9 +51,6 @@ class WishlistItemRepository:
         await self.session.flush()
         return item
 
-    async def get_items(self, wishlist_id: UUID) -> list[WishlistItem]:
-        return await self.find(WishlistItem.wishlist_id == wishlist_id)
-
     async def get(self, wishlist_id: UUID, variant_id: UUID) -> WishlistItem | None:
         return await self.find_one(
             WishlistItem.wishlist_id == wishlist_id, WishlistItem.variant_id == variant_id

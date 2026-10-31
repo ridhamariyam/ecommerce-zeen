@@ -16,7 +16,7 @@ const ABOUT_LINKS = [
   { label: 'Our Story', href: '/about' },
   { label: 'Sustainability', href: '/about' },
   { label: 'FAQs', href: '/faq' },
-  { label: 'Shipping & Returns', href: '/faq' },
+  { label: 'Shipping & Returns', href: '/policies/shipping-returns' },
   { label: 'Account', href: '/account' },
 ];
 
@@ -46,10 +46,6 @@ function HomeFooter() {
           <p className={styles.footerLabel}>Contact</p>
           <p className={styles.footerBig}>
             <Link href="/contact">Write to the ZEEN studio</Link>
-          </p>
-          <p className={styles.footerLabel}>Social</p>
-          <p className={styles.footerBig}>
-            <a href="#">Instagram</a> / <a href="#">X</a> / <a href="#">TikTok</a>
           </p>
         </div>
         <ul className={styles.footerLinks}>
@@ -83,7 +79,9 @@ function HomeFooter() {
         </div>
         <div className={styles.footerLegal}>
           <p className={styles.footerLabel}>Legal</p>
-          <Link href="/faq">Privacy policy</Link>
+          <Link href="/policies/privacy">Privacy policy</Link>
+          {' / '}
+          <Link href="/policies/terms">Terms</Link>
         </div>
       </div>
     </footer>

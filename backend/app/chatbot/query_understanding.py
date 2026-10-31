@@ -53,7 +53,7 @@ _LIMIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _MALFORMED_NEGATIVE_PRICE = re.compile(
-    r"(?<![\w])(?:under|below|above|over|between|less\s+than|more\s+than)\s+[-−]\s*\d",
+    r"(?<![\w])(?:under|below|above|over|between|less\s+than|more\s+than)\s+(?:₹\s*)?[-−]\s*\d",
     re.IGNORECASE,
 )
 _SPACE = re.compile(r"\s+")
@@ -67,6 +67,7 @@ def _one_match(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
 def _clean_search(text: str) -> str | None:
     # These short connector words remain after recognized phrases are removed.
     text = re.sub(r"(?i)\b(?:for|a|an|the)\b", " ", text)
+    text = re.sub(r"[,;]", " ", text)
     text = _EDGE_PUNCTUATION.sub("", text)
     text = _SPACE.sub(" ", text).strip()
     return text or None
@@ -78,10 +79,7 @@ def understand_query(payload: QueryUnderstandingInput | str) -> SearchCriteria:
     Recognition is deliberately phrase-based. Anything not recognized as one
     of these bounded criteria remains in ``search`` instead of being guessed.
     """
-    if isinstance(payload, str):
-        request = QueryUnderstandingInput(message=payload)
-    else:
-        request = payload
+    request = QueryUnderstandingInput(message=payload) if isinstance(payload, str) else payload
 
     remaining = request.message.strip()
     if not remaining:

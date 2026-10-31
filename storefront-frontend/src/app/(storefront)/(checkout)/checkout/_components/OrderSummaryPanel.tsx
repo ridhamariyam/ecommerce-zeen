@@ -292,7 +292,7 @@ export default function OrderSummaryPanel({
           </span>
           <div>
             <p className={styles.trustTitle}>Easy Returns</p>
-            <p className={styles.trustDesc}>30-day return policy</p>
+            <p className={styles.trustDesc}>14-day return policy</p>
           </div>
         </div>
         <div className={styles.trustItem}>
