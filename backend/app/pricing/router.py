@@ -16,6 +16,8 @@ from app.pricing.constants import PINCODE_PATTERN
 from app.pricing.schemas import (
     DeliveryCheckQuery,
     DeliveryCheckRead,
+    GstDefaultsRead,
+    GstDefaultsReview,
     GstReportQuery,
     GstReportRead,
     GstSettingsRead,
@@ -24,8 +26,10 @@ from app.pricing.schemas import (
     PincodeRuleBulk,
     PincodeRuleRead,
     PincodeRuleWrite,
+    ProductTaxReviewRead,
     ShippingSettingsRead,
     ShippingSettingsUpdate,
+    StorefrontTaxInfo,
     TaxRateApproval,
     TaxRateConfigurationRead,
     TaxRateConfigurationWrite,
@@ -41,6 +45,7 @@ from app.pricing.service import (
     ShippingService,
     TaxService,
 )
+from app.pricing.tax_engine import TaxEngine
 from app.tenants.resolver import CurrentTenant
 from app.users.models import User
 
@@ -120,6 +125,26 @@ pincode_router = APIRouter(prefix="/admin/pincodes", tags=["Admin-Delivery"], de
 gst_router = APIRouter(prefix="/admin/gst", tags=["Admin-GST"], dependencies=AUDITED)
 
 delivery_router = APIRouter(prefix="/storefront/delivery", tags=["Delivery"])
+
+storefront_tax_router = APIRouter(prefix="/storefront/tax", tags=["Storefront-Tax"])
+
+
+@storefront_tax_router.get(
+    "",
+    response_model=ApiResponse[StorefrontTaxInfo],
+    summary="Whether prices include GST, for the product and cart pages",
+)
+async def storefront_tax_info(
+    tenant: CurrentTenant,
+    session: AsyncSession = Depends(get_db),
+) -> ApiResponse[StorefrontTaxInfo]:
+    profile = await TaxEngine(session, tenant.id).profile()
+    return ok(
+        StorefrontTaxInfo(
+            gst_enabled=profile.enabled, prices_include_gst=profile.prices_include_gst
+        ),
+        message="Tax display settings",
+    )
 
 
 @delivery_router.get(
@@ -274,6 +299,48 @@ async def activate_gst_settings(
         actor_id=user.id, ca_confirmed=data.ca_confirmed
     )
     return ok(gst_read(settings), message="Business tax settings activated")
+
+
+@gst_router.get(
+    "/defaults",
+    response_model=ApiResponse[GstDefaultsRead],
+    summary="The system default GST rules and this store's review of them",
+)
+async def get_gst_defaults(
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission(Permission.SETTINGS_VIEW, legacy_staff=True)),
+) -> ApiResponse[GstDefaultsRead]:
+    return ok(await GstService(session, user.tenant_id).defaults(), message="GST defaults")
+
+
+@gst_router.post(
+    "/defaults/review",
+    response_model=ApiResponse[GstDefaultsRead],
+    summary="Record that the store has reviewed the default rules (for this store only)",
+)
+async def review_gst_defaults(
+    data: GstDefaultsReview,
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+) -> ApiResponse[GstDefaultsRead]:
+    defaults = await GstService(session, user.tenant_id).review_defaults(
+        actor_id=user.id, reviewed=data.reviewed
+    )
+    return ok(defaults, message="GST defaults review saved")
+
+
+@gst_router.get(
+    "/product-review",
+    response_model=ApiResponse[list[ProductTaxReviewRead]],
+    summary="How each product is taxed today, flagging unverified rates",
+)
+async def product_tax_review(
+    flagged: bool = Query(default=False, description="Only products that need review"),
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission(Permission.SETTINGS_VIEW, legacy_staff=True)),
+) -> ApiResponse[list[ProductTaxReviewRead]]:
+    rows = await GstService(session, user.tenant_id).product_review(only_flagged=flagged)
+    return ok([ProductTaxReviewRead(**row) for row in rows], message="Product tax review")
 
 
 @gst_router.get("/rates", response_model=ApiResponse[list[TaxRateConfigurationRead]])

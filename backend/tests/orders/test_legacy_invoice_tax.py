@@ -28,6 +28,9 @@ def _order(*, gst_type: str | None, tax: str, item_tax: str | None):
         subtotal=Decimal("100.00"),
         taxable_amount=Decimal("100.00"),
         gst_rate=Decimal("18.00"),
+        cgst_amount=None,
+        sgst_amount=None,
+        igst_amount=None,
         tax_amount=item_tax_amount,
     )
     return SimpleNamespace(

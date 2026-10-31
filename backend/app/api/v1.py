@@ -22,6 +22,7 @@ from app.ratings import router as ratings
 from app.reports import router as reports
 from app.returns import router as returns
 from app.search_filter import router as search_filter
+from app.shipments import router as shipments
 from app.users import router as users
 from app.wishlist import router as wishlist
 
@@ -42,6 +43,9 @@ for router in (
     orders.router,
     orders.admin_router,
     orders.tracking_router,
+    shipments.router,
+    shipments.settings_router,
+    shipments.webhook_router,
     wishlist.router,
     payments.router,
     payments.admin_router,
@@ -50,6 +54,7 @@ for router in (
     pricing.pincode_router,
     pricing.delivery_router,
     pricing.gst_router,
+    pricing.storefront_tax_router,
     cod.router,
     coupons.router,
     coupons.admin_router,

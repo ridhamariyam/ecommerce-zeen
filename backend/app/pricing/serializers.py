@@ -54,7 +54,7 @@ def pincode_read(rule: PincodeRule) -> PincodeRuleRead:
 
 def gst_read(settings: GstSettings | None) -> GstSettingsRead:
     if settings is None:
-        return GstSettingsRead()
+        return GstSettingsRead(is_system_default=True)
     return GstSettingsRead(
         gstin=settings.gstin,
         legal_name=settings.legal_name,
@@ -67,6 +67,11 @@ def gst_read(settings: GstSettings | None) -> GstSettingsRead:
         accounting_software=settings.accounting_software,
         configuration_status=settings.configuration_status,
         prices_include_gst=settings.prices_include_gst,
+        gst_enabled=settings.gst_enabled,
+        default_classification=settings.default_classification,
+        fallback_gst_rate=settings.fallback_gst_rate,
+        defaults_reviewed_at=settings.defaults_reviewed_at,
+        defaults_reviewed_by_id=settings.defaults_reviewed_by_id,
         updated_at=settings.updated_at,
         updated_by_id=settings.updated_by_id,
         confirmed_at=settings.confirmed_at,

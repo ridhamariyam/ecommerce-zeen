@@ -1,5 +1,10 @@
 const TONES: Record<string, string> = {
   ACTIVE: "ok",
+  VERIFIED: "ok",
+  REVIEWED: "ok",
+  UNVERIFIED: "warn",
+  AWAITING_VERIFICATION: "warn",
+  NEEDS_REVIEW: "bad",
   PUBLISHED: "ok",
   PAID: "ok",
   DELIVERED: "ok",

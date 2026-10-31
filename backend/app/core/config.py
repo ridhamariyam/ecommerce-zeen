@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -99,12 +100,35 @@ class Settings(BaseSettings):
     store_utc_offset_minutes: int = 330
 
     # These credentials are only exposed as integration status; no external
-    # shipping, email or alternate payment API is called by this integration.
+    # email or alternate payment API is called by this integration.
     ccavenue_merchant_id: str | None = None
     ccavenue_access_code: str | None = None
     ccavenue_working_key: str | None = None
+
+    # Shiprocket API user (Settings > API > Add New API User in the panel).
+    # Server-side only; see app/shipments/shiprocket.py. Booking also needs a
+    # tenant to enable it under Admin > Shipping provider.
     shiprocket_email: str | None = None
     shiprocket_password: str | None = None
+    # Bind the deployment's API account to one tenant; other tenants cannot
+    # use it or inspect its pickup locations. Use the map for separate accounts.
+    shiprocket_tenant_id: str | None = None
+    shiprocket_tenant_credentials: dict[UUID, dict[str, str]] = Field(
+        default_factory=dict, repr=False
+    )
+    shiprocket_api_url: str = "https://apiv2.shiprocket.in/v1/external"
+    shiprocket_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    # Shiprocket documents tokens as valid for 10 days; refresh well before.
+    shiprocket_token_ttl_seconds: int = Field(default=9 * 24 * 3600, gt=0, lt=10 * 24 * 3600)
+    # Retries for reads (tracking, rates) on 429/5xx/timeouts. Calls that book
+    # or change something are never retried blindly.
+    shiprocket_read_retries: int = Field(default=2, ge=0, le=5)
+    # The token entered as the webhook "security token" in the panel; sent
+    # back by Shiprocket as the x-api-key header. Unset = webhooks refused.
+    shiprocket_webhook_token: str | None = None
+    # How often a parcel in transit is re-checked when no webhook arrives.
+    shipment_sync_interval_minutes: int = 60
+
     msg91_admin_otp_template_id: str | None = None
     email_provider_api_key: str | None = None
     whatsapp_provider_api_key: str | None = None

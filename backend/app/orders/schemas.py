@@ -25,6 +25,7 @@ from app.orders.constants import (
 )
 from app.payments.schemas import PaymentRead
 from app.pricing.constants import PINCODE_PATTERN
+from app.shipments.schemas import CustomerShipmentRead
 
 
 class CheckoutItem(BaseModel):
@@ -47,6 +48,15 @@ class CheckoutItem(BaseModel):
     discount_amount: Decimal = Decimal("0.00")
     taxable_amount: Decimal | None = None
     tax_amount: Decimal = Decimal("0.00")
+    cgst_amount: Decimal = Decimal("0.00")
+    sgst_amount: Decimal = Decimal("0.00")
+    igst_amount: Decimal = Decimal("0.00")
+    # Which rule set the rate and how sure the store is of it: frozen onto the
+    # order line, but kept out of the shopper-facing preview.
+    tax_rule_id: UUID | None = Field(default=None, exclude=True)
+    tax_rule_code: str | None = Field(default=None, exclude=True)
+    tax_source: str | None = Field(default=None, exclude=True)
+    tax_verification: str | None = Field(default=None, exclude=True)
 
 
 class GstBreakdown(BaseModel):
@@ -165,6 +175,12 @@ class OrderItemRead(BaseModel):
     discount_amount: Decimal | None = None
     taxable_amount: Decimal | None = None
     tax_amount: Decimal | None = None
+    cgst_amount: Decimal | None = None
+    sgst_amount: Decimal | None = None
+    igst_amount: Decimal | None = None
+    tax_rule_code: str | None = None
+    tax_source: str | None = None
+    tax_verification: str | None = None
 
 
 class ShipmentRead(BaseModel):
@@ -193,6 +209,8 @@ class OrderRead(BaseModel):
     payment: PaymentRead | None
     payments: list[PaymentRead] = []
     gst: GstBreakdown | None = None
+    prices_include_gst: bool = False
+    tax_review_required: bool = False
     delivery_address: DeliveryAddressRead
     contact_email: str | None = None
     is_guest: bool = False
@@ -260,6 +278,9 @@ class OrderTrackingRead(BaseModel):
     estimated_delivery_date: date | None
     shipment: ShipmentRead
     events: list[TrackingEventRead]
+    courier: CustomerShipmentRead | None = Field(
+        default=None, description="Live courier status from the shipping provider, if booked"
+    )
 
 
 class PublicTrackingQuery(StrictModel):

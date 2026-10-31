@@ -8,7 +8,8 @@ from uuid import UUID
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.catalogue.models import Category, Product
+from app.catalogue.models import Category, Product, ProductVariant
+from app.catalogue.prices import effective_price
 from app.core.database import conflict_on_integrity_error
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.money import ZERO, money
@@ -17,9 +18,12 @@ from app.orders.models import Order, OrderItem
 from app.pricing.constants import (
     DEFAULT_MAX_DELIVERY_DAYS,
     DEFAULT_MIN_DELIVERY_DAYS,
+    TaxSource,
+    TaxVerification,
 )
 from app.pricing.gst import STATE_CODES, state_code_for
 from app.pricing.models import (
+    GstDefaultRule,
     GstSettings,
     PincodeRule,
     ShippingSettings,
@@ -33,12 +37,15 @@ from app.pricing.repository import (
     TaxSettingsRepository,
 )
 from app.pricing.schemas import (
+    GstDefaultRuleRead,
+    GstDefaultsRead,
     GstSettingsUpdate,
     PincodeRuleWrite,
     ShippingSettingsUpdate,
     TaxRateConfigurationWrite,
     TaxSettingsUpdate,
 )
+from app.pricing.tax_engine import TaxEngine, TaxLineInput, TaxProfile, tax_date
 
 SAVE_FAILED = "Unable to save the settings, please try again"
 
@@ -309,11 +316,22 @@ class GstService:
             "registration_status": data.registration_status,
             "accounting_software": data.accounting_software,
             "prices_include_gst": data.prices_include_gst,
+            "gst_enabled": data.gst_enabled,
+            "default_classification": data.default_classification,
+            "fallback_gst_rate": data.fallback_gst_rate,
             "configuration_status": "PENDING_CA_CONFIRMATION",
             "updated_by_id": actor_id,
             "confirmed_by_id": None,
             "confirmed_at": None,
         }
+        # A review covers the assumptions it was given; changing them reopens it.
+        if settings is not None and (
+            settings.default_classification != data.default_classification
+            or settings.fallback_gst_rate != data.fallback_gst_rate
+            or settings.prices_include_gst != data.prices_include_gst
+        ):
+            values["defaults_reviewed_at"] = None
+            values["defaults_reviewed_by_id"] = None
         async with conflict_on_integrity_error(self.session, SAVE_FAILED):
             if settings is None:
                 settings = await self.settings.add(GstSettings(**values))
@@ -352,6 +370,146 @@ class GstService:
         # updated_at is set by the database, so the commit leaves it expired.
         await self.session.refresh(settings)
         return settings
+
+    async def defaults(self) -> GstDefaultsRead:
+        """The system rules every tenant shares, and this tenant's review of them."""
+        settings = await self.get_settings()
+        profile = TaxProfile.of(settings, None)
+        today = tax_date()
+        rules = (
+            await self.session.scalars(
+                select(GstDefaultRule).order_by(
+                    GstDefaultRule.classification,
+                    GstDefaultRule.effective_from.desc(),
+                    GstDefaultRule.min_unit_value.nulls_first(),
+                )
+            )
+        ).all()
+        fallback = next(
+            (
+                rule for rule in rules
+                if rule.is_fallback and rule.effective_from <= today
+                and (rule.effective_to is None or rule.effective_to >= today)
+            ),
+            None,
+        )
+        return GstDefaultsRead(
+            rules=[
+                GstDefaultRuleRead(
+                    id=rule.id, code=rule.code, classification=rule.classification,
+                    description=rule.description, hsn_prefixes=list(rule.hsn_prefixes),
+                    min_unit_value=rule.min_unit_value, max_unit_value=rule.max_unit_value,
+                    gst_rate=rule.gst_rate, effective_from=rule.effective_from,
+                    effective_to=rule.effective_to, is_fallback=rule.is_fallback,
+                    verification_status=rule.verification_status, source=rule.source,
+                    in_force=rule.effective_from <= today
+                    and (rule.effective_to is None or rule.effective_to >= today),
+                )
+                for rule in rules
+            ],
+            default_classification=profile.default_classification,
+            fallback_gst_rate=profile.fallback_rate,
+            system_fallback_rate=fallback.gst_rate if fallback else None,
+            reviewed_at=settings.defaults_reviewed_at if settings else None,
+            reviewed_by_id=settings.defaults_reviewed_by_id if settings else None,
+            status="REVIEWED" if profile.defaults_reviewed else "AWAITING_VERIFICATION",
+        )
+
+    async def review_defaults(self, *, actor_id: UUID, reviewed: bool) -> GstDefaultsRead:
+        """Record (or withdraw) the store's sign-off on the default rules for itself only."""
+        settings = await self.session.scalar(
+            select(GstSettings).where(GstSettings.tenant_id == self.tenant_id).with_for_update()
+        )
+        if settings is None:
+            raise NotFoundError("Save the business GST details before reviewing the defaults")
+        settings.defaults_reviewed_at = datetime.now(timezone.utc) if reviewed else None
+        settings.defaults_reviewed_by_id = actor_id if reviewed else None
+        settings.updated_by_id = actor_id
+        async with conflict_on_integrity_error(self.session, SAVE_FAILED):
+            await self.session.commit()
+        return await self.defaults()
+
+    async def product_review(self, *, only_flagged: bool = False) -> list[dict]:
+        """How each live product is taxed today at its variants' current prices.
+
+        Uses the same resolver as checkout, before any coupon, so a flagged
+        product here is one checkout would also flag.
+        """
+        engine = TaxEngine(self.session, self.tenant_id)
+        profile = await engine.profile()
+        on = tax_date()
+        rules = await engine.rules_on(on)
+        rows = (
+            await self.session.execute(
+                select(Product, Category)
+                .outerjoin(
+                    Category,
+                    and_(
+                        Category.tenant_id == Product.tenant_id,
+                        Category.id == Product.category_id,
+                    ),
+                )
+                .where(Product.tenant_id == self.tenant_id, Product.status != "ARCHIVED")
+                .order_by(Product.name)
+            )
+        ).all()
+        variants = (
+            await self.session.scalars(
+                select(ProductVariant).where(
+                    ProductVariant.tenant_id == self.tenant_id,
+                    ProductVariant.status != "ARCHIVED",
+                )
+            )
+        ).all()
+        prices: dict[UUID, list[Decimal]] = {}
+        for variant in variants:
+            prices.setdefault(variant.product_id, []).append(effective_price(variant))
+
+        inputs = [
+            TaxLineInput(
+                key=product.id, product_id=product.id, category_id=product.category_id,
+                quantity=1, amount=ZERO, product_hsn=product.hsn_code,
+                product_rate=product.gst_rate,
+                category_hsn=category.hsn_code if category else None,
+                category_rate=category.gst_rate if category else None,
+            )
+            for product, category in rows
+        ]
+        approved = await engine.approved_for(inputs, on) if profile.enabled else ({}, {})
+
+        review = []
+        for (product, category), line in zip(rows, inputs, strict=True):
+            resolutions = [
+                engine.resolve(line, price, profile=profile, rules=rules, approved=approved)
+                for price in sorted(set(prices.get(product.id) or [ZERO]))
+            ]
+            needs_review = any(resolution.needs_review for resolution in resolutions)
+            if only_flagged and not needs_review:
+                continue
+            # The weakest source and verification across the variants speak for the product.
+            worst = max(
+                resolutions,
+                key=lambda r: (
+                    r.verification == TaxVerification.NEEDS_REVIEW,
+                    r.verification == TaxVerification.AWAITING_VERIFICATION,
+                    r.source == TaxSource.FALLBACK,
+                ),
+            )
+            review.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "category_name": category.name if category else None,
+                    "hsn_code": worst.hsn_code,
+                    "source": worst.source,
+                    "verification": worst.verification,
+                    "rule_codes": sorted({r.rule_code for r in resolutions if r.rule_code}),
+                    "rates": sorted({r.rate for r in resolutions}),
+                    "reason": worst.reason,
+                    "needs_review": needs_review,
+                }
+            )
+        return review
 
     async def list_rate_configurations(self) -> list[dict]:
         rows = (

@@ -5,12 +5,15 @@ from __future__ import annotations
 from tests.admin.conftest import API
 
 
-async def test_payment_and_courier_integrations_are_pending(client, admin_headers):
+async def test_ccavenue_is_pending_and_shiprocket_is_integrated(client, admin_headers):
     response = await client.get(f"{API}/admin/integrations", headers=admin_headers)
 
     status = {i["key"]: i for i in response.json()["data"]}
     assert status["ccavenue"]["integrated"] is False
-    assert status["shiprocket"]["integrated"] is False
+    assert status["shiprocket"]["integrated"] is True
+    assert status["shiprocket"]["required_settings"] == [
+        "SHIPROCKET_EMAIL", "SHIPROCKET_PASSWORD", "SHIPROCKET_TENANT_ID"
+    ]
     assert "CCAVENUE_MERCHANT_ID" in status["ccavenue"]["required_settings"]
 
 

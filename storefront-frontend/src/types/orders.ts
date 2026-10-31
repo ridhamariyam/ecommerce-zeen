@@ -160,6 +160,17 @@ export interface OrderTracking {
   estimated_delivery_date: string | null;
   shipment: Shipment;
   events: TrackingEvent[];
+  courier?: CourierTracking | null;
+}
+
+export interface CourierTracking {
+  state: string;
+  status_label: string | null;
+  courier_name: string | null;
+  awb_code: string | null;
+  tracking_url: string | null;
+  provider_etd: string | null;
+  last_event_at: string | null;
 }
 
 export interface InvoiceParty {

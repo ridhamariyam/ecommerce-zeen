@@ -17,7 +17,8 @@ from app.pricing.constants import (
     SEED_SHIPPING_AMOUNT,
     SEED_TAX_PERCENTAGE,
 )
-from app.pricing.models import ShippingSettings, TaxSettings
+from app.pricing.defaults import ensure_default_rules
+from app.pricing.models import GstSettings, ShippingSettings, TaxSettings
 from app.tenants.models import Tenant, TenantDomain
 from app.tenants.repository import TenantRepository
 from app.users.repository import UserRepository
@@ -128,6 +129,19 @@ async def bootstrap_tenant(session: AsyncSession, settings: Settings) -> Tenant:
         print(f"Created pending tax settings: {SEED_TAX_PERCENTAGE}%")
     else:
         print("Tax settings already exist")
+
+    # Platform defaults only: no GSTIN, state or legal name is assumed. Checkout
+    # prices with the unverified system rules until the store reviews them.
+    if await session.scalar(
+        select(GstSettings).where(GstSettings.tenant_id == tenant.id)
+    ) is None:
+        session.add(GstSettings(tenant_id=tenant.id))
+        print("Created draft GST settings with the system defaults (awaiting verification)")
+    else:
+        print("GST settings already exist")
+
+    added = await ensure_default_rules(session, commit=False)
+    print(f"System GST default rules: {added} added" if added else "System GST rules present")
 
     await session.commit()
     return tenant

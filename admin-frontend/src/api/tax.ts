@@ -1,4 +1,4 @@
-import type { GstReport, GstSettings, TaxRateConfiguration, TaxRateTargets, TaxSettings } from "../types/settings";
+import type { GstDefaults, GstReport, GstSettings, ProductTaxReview, TaxRateConfiguration, TaxRateTargets, TaxSettings } from "../types/settings";
 import { request } from "./client";
 
 export const getTax = () => request<TaxSettings>("/admin/tax");
@@ -15,3 +15,7 @@ export const createTaxRate = (data: { product_id?: string; category_id?: string;
 export const approveTaxRate = (id: string) => request<TaxRateConfiguration>(`/admin/gst/rates/${id}/approve`, { method: "POST", body: { ca_confirmed: true } });
 export const getGstReport = (start_date: string, end_date: string) =>
   request<GstReport>("/admin/gst/report", { query: { start_date, end_date } });
+export const getGstDefaults = () => request<GstDefaults>("/admin/gst/defaults");
+export const reviewGstDefaults = (reviewed: boolean) => request<GstDefaults>("/admin/gst/defaults/review", { method: "POST", body: { reviewed } });
+export const getProductTaxReview = (flagged: boolean) =>
+  request<ProductTaxReview[]>("/admin/gst/product-review", { query: { flagged: String(flagged) } });

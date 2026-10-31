@@ -145,9 +145,11 @@ async def test_switching_tax_off_charges_none(set_shipping, set_tax, fill_cart, 
     assert Decimal(body["tax_amount"]) == Decimal("0.00")
 
 
-async def test_an_unconfigured_tenant_cannot_price_a_basket(
+async def test_an_unconfigured_tenant_still_prices_a_basket(
     client, session, tenant, customer_auth, set_shipping, fill_cart
 ):
+    """Without GST settings checkout no longer stops: it prices on the defaults
+    (here the signed-off 0% mappings still win) and flags nothing as verified."""
     await set_shipping(is_active=False)
     await fill_cart(1)
     await session.execute(delete(GstSettings).where(GstSettings.tenant_id == tenant.id))
@@ -155,8 +157,8 @@ async def test_an_unconfigured_tenant_cannot_price_a_basket(
 
     response = await client.post(f"{CHECKOUT}/preview", headers=customer_auth)
 
-    assert response.status_code == 409, response.text
-    assert response.json()["error"]["code"] == "TAX_CONFIGURATION_INCOMPLETE"
+    assert response.status_code == 200, response.text
+    assert Decimal(response.json()["data"]["tax_amount"]) == Decimal("0.00")
 
 
 async def test_tax_is_rounded_to_two_places(set_shipping, set_tax, fill_cart, preview):

@@ -56,6 +56,8 @@ from app.orders.serializers import (
 from app.orders.service import CheckoutService, OrderService
 from app.payments.service import PaymentService
 from app.pricing.service import GstService
+from app.shipments.serializers import customer_shipment_read
+from app.shipments.service import ShipmentService
 from app.tenants.resolver import CurrentTenant
 from app.users.models import User
 
@@ -87,6 +89,12 @@ tracking_router = APIRouter(prefix="/storefront/orders", tags=["Order Tracking"]
 PDF_RESPONSE = {
     200: {"content": {PDF_MEDIA_TYPE: {}}, "description": "The invoice as a PDF download"}
 }
+
+
+async def _tracking(session: AsyncSession, order) -> OrderTrackingRead:
+    """The order's timeline, plus the courier's own status once a shipment is booked."""
+    shipment = await ShipmentService(session, order.tenant_id).current_for_order(order.id)
+    return tracking_read(order, customer_shipment_read(shipment))
 
 
 async def _invoice_pdf(session: AsyncSession, tenant, order) -> Response:
@@ -259,7 +267,7 @@ async def track_order_publicly(
     order = await OrderService(session, tenant.id).get_for_tracking(
         params.order_number, params.phone
     )
-    return ok(tracking_read(order), message="Order tracking retrieved")
+    return ok(await _tracking(session, order), message="Order tracking retrieved")
 
 
 @router.get(
@@ -312,7 +320,7 @@ async def track_my_order(
     user: User = Depends(require_customer),
 ) -> ApiResponse[OrderTrackingRead]:
     order = await OrderService(session, user.tenant_id).get_for_customer(user.id, order_id)
-    return ok(tracking_read(order), message="Order tracking retrieved")
+    return ok(await _tracking(session, order), message="Order tracking retrieved")
 
 
 @router.get(
@@ -475,7 +483,7 @@ async def admin_tracking(
     user: User = Depends(require_permission(Permission.ORDERS_VIEW, legacy_staff=True)),
 ) -> ApiResponse[OrderTrackingRead]:
     order = await OrderService(session, user.tenant_id).get(order_id)
-    return ok(tracking_read(order), message="Order tracking retrieved")
+    return ok(await _tracking(session, order), message="Order tracking retrieved")
 
 
 @admin_router.get(

@@ -8,7 +8,7 @@ import { renderApp } from "../../test/renderApp";
 import { saveTokens } from "../../utils/storage";
 import TaxSection from "./TaxSection";
 
-const gst = { gstin: null, legal_name: null, address: null, state: null, state_code: null, invoice_prefix: "INV-", shipping_sac_code: null };
+const gst = { gstin: null, legal_name: null, address: null, state: null, state_code: null, invoice_prefix: "INV-", shipping_sac_code: null, gst_enabled: true };
 const tax = { tax_percentage: "0.00", is_active: false };
 const report = (rows: unknown[]) =>
   ok({ start_date: "2026-09-01", end_date: "2026-10-01", order_count: 2, taxable_amount: "2000.00", cgst_amount: "0.00", sgst_amount: "0.00", igst_amount: "0.00", tax_amount: "0.00", by_rate: rows, currency: "INR" });
@@ -21,12 +21,20 @@ const invoice = {
   totals: { subtotal: "999.00", total: "1048.95" }, currency: "INR",
 };
 
+const rule = (over: Record<string, unknown>) => ({ id: "r1", code: "APPAREL_UPTO_2500", classification: "APPAREL", description: "Apparel (HSN 61/62), sale value up to Rs 2,500 per piece", hsn_prefixes: ["61", "62"], min_unit_value: null, max_unit_value: "2500.00", gst_rate: "5.00", effective_from: "2025-09-22", effective_to: null, is_fallback: false, verification_status: "UNVERIFIED", source: null, in_force: true, ...over });
+const defaults = (status = "AWAITING_VERIFICATION") => ({
+  rules: [rule({}), rule({ id: "r0", code: "APPAREL_UPTO_1000", max_unit_value: "1000.00", effective_from: "2017-07-01", effective_to: "2025-09-21", in_force: false, description: "Old apparel slab" })],
+  default_classification: "APPAREL", fallback_gst_rate: null, system_fallback_rate: "18.00", reviewed_at: null, reviewed_by_id: null, status,
+});
+
 const base = (permissions: string[], role = "STAFF") => [
   route("GET", "/auth/me", () => ok(profile({ role, permissions }))),
   route("GET", "/admin/gst", () => ok(gst)),
   route("GET", "/admin/tax", () => ok(tax)),
   route("GET", "/admin/gst/rates", () => ok([])),
   route("GET", "/admin/gst/targets", () => ok({ products: [], categories: [] })),
+  route("GET", "/admin/gst/defaults", () => ok(defaults())),
+  route("GET", "/admin/gst/product-review", () => ok([])),
   route("GET", "/admin/gst/report", () => report([])),
   route("GET", "/admin/orders", () => ok([order], { page: 1, page_size: 20, total_items: 1, total_pages: 1 })),
 ];
@@ -158,5 +166,41 @@ describe("GST & invoicing page", () => {
     await waitFor(() => expect(calls.some((call) => call.url.pathname.endsWith("/admin/gst/rates/rate-1/approve"))).toBe(true));
     const call = calls.find((item) => item.url.pathname.endsWith("/admin/gst/rates/rate-1/approve"));
     expect(JSON.parse(call!.init.body as string)).toEqual({ ca_confirmed: true });
+  });
+
+  it("shows the system defaults as awaiting verification and records the review only after confirmation", async () => {
+    const { calls } = mockFetch(
+      route("POST", "/admin/gst/defaults/review", () => ok(defaults("REVIEWED"))),
+      route("GET", "/admin/gst/product-review", () => ok([{ product_id: "p1", product_name: "Silver Jhumka", category_name: "Jewellery", hsn_code: "7117", source: "FALLBACK", verification: "NEEDS_REVIEW", rule_codes: ["FALLBACK_UNCLASSIFIED"], rates: ["18.00"], reason: "HSN 7117 is not covered", needs_review: true }])),
+      ...base(ALL, "ADMIN"),
+    );
+    renderPage();
+
+    expect(await screen.findByText("Apparel (HSN 61/62), sale value up to Rs 2,500 per piece")).toBeInTheDocument();
+    expect(screen.queryByText("Old apparel slab")).not.toBeInTheDocument();
+    expect(await screen.findByText("Silver Jhumka")).toBeInTheDocument();
+    expect(screen.getByText("Fallback")).toBeInTheDocument();
+    expect(screen.getByText("NEEDS REVIEW")).toBeInTheDocument();
+
+    const mark = screen.getByRole("button", { name: "Mark defaults reviewed" });
+    expect(mark).toBeDisabled();
+    await userEvent.click(screen.getByLabelText(/checked these rules/));
+    await userEvent.click(mark);
+    await waitFor(() => expect(calls.some((call) => call.url.pathname.endsWith("/admin/gst/defaults/review"))).toBe(true));
+    const call = calls.find((item) => item.url.pathname.endsWith("/admin/gst/defaults/review"));
+    expect(JSON.parse(call!.init.body as string)).toEqual({ reviewed: true });
+  });
+
+  it("sends the GST switch, assumed classification and fallback rate with the business details", async () => {
+    const { calls } = mockFetch(route("PUT", "/admin/gst", (_url, init) => ok({ ...gst, ...JSON.parse(init.body as string) })), ...base(ALL, "ADMIN"));
+    renderPage();
+
+    await userEvent.selectOptions(await screen.findByLabelText("Assume classification"), "");
+    await userEvent.type(screen.getByLabelText("Fallback rate %"), "12");
+    await userEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+
+    await waitFor(() => expect(calls.some((c) => c.init.method === "PUT")).toBe(true));
+    const body = JSON.parse(calls.find((c) => c.init.method === "PUT")!.init.body as string);
+    expect(body).toMatchObject({ gst_enabled: true, default_classification: null, fallback_gst_rate: "12" });
   });
 });

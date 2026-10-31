@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,24 +67,14 @@ from app.payments.constants import PaymentProvider, PaymentPurpose
 from app.payments.constants import PaymentStatus as CashStatus
 from app.payments.models import Payment
 from app.payments.repository import PaymentRepository
-from app.pricing.gst import (
-    STATE_CODES,
-    TaxableLine,
-    TaxResult,
-    compute_tax,
-    state_code_for,
-    supply_type,
-)
-from app.pricing.models import GstSettings, TaxRateConfiguration, TaxSettings
-from app.pricing.service import (
-    DeliveryQuote,
-    DeliveryService,
-    GstService,
-    ShippingService,
-    TaxService,
-)
+from app.pricing.gst import STATE_CODES, TaxResult, state_code_for, supply_type
+from app.pricing.models import GstSettings
+from app.pricing.service import DeliveryQuote, DeliveryService, GstService, ShippingService
+from app.pricing.tax_engine import TaxCalculation, TaxEngine, TaxLineInput, TaxProfile
 from app.ratings.service import ReviewRequestService
 from app.returns.service import ReturnReasonService
+from app.shipments.constants import ShipmentState
+from app.shipments.models import Shipment
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -167,6 +157,11 @@ class Destination:
 class PricedLine:
     item: CheckoutItem
     category_id: UUID
+    # The catalogue's own GST fields, for the tax engine to resolve from.
+    product_hsn: str | None = None
+    product_rate: Decimal | None = None
+    category_hsn: str | None = None
+    category_rate: Decimal | None = None
 
 
 @dataclass
@@ -175,6 +170,8 @@ class Quote:
     lines: list[PricedLine]
     coupon: CouponResult | None
     tax: TaxResult
+    calculation: TaxCalculation
+    profile: TaxProfile
     delivery: DeliveryQuote | None
     cod: CodAvailability | None
     seller_gstin: str | None
@@ -204,8 +201,7 @@ class CheckoutService:
         self.payments = PaymentRepository(session, tenant_id)
         self.shipping = ShippingService(session, tenant_id)
         self.delivery = DeliveryService(session, tenant_id)
-        self.tax = TaxService(session, tenant_id)
-        self.gst = GstService(session, tenant_id)
+        self.taxes = TaxEngine(session, tenant_id)
         self.coupons = CouponService(session, tenant_id)
         self.cod = CodService(session, tenant_id)
 
@@ -435,10 +431,9 @@ class CheckoutService:
                 seller_state=quote.gst_settings.state if quote.gst_settings else None,
                 seller_state_code=quote.gst_settings.state_code if quote.gst_settings else None,
                 invoice_prefix=quote.gst_settings.invoice_prefix if quote.gst_settings else None,
-                shipping_sac_code=quote.gst_settings.shipping_sac_code
-                if quote.gst_settings
-                else None,
+                shipping_sac_code=quote.profile.shipping_sac_code,
                 charges_gst_rate=quote.tax.charges_rate,
+                tax_review_required=quote.calculation.review_required,
                 prices_include_gst=bool(
                     quote.gst_settings and quote.gst_settings.prices_include_gst
                 ),
@@ -482,6 +477,13 @@ class CheckoutService:
                         discount_amount=item.discount_amount,
                         taxable_amount=item.taxable_amount,
                         tax_amount=item.tax_amount,
+                        cgst_amount=item.cgst_amount,
+                        sgst_amount=item.sgst_amount,
+                        igst_amount=item.igst_amount,
+                        tax_rule_id=item.tax_rule_id,
+                        tax_rule_code=item.tax_rule_code,
+                        tax_source=item.tax_source,
+                        tax_verification=item.tax_verification,
                     )
                 )
 
@@ -602,28 +604,8 @@ class CheckoutService:
         shipping_discount = min(coupon.shipping_discount, shipping) if coupon else ZERO
         shipping_charged = shipping - shipping_discount
 
-        gst_settings = (
-            await self.session.scalar(
-                select(GstSettings).where(GstSettings.tenant_id == self.tenant_id).with_for_update()
-            )
-            if for_update
-            else await self.gst.get_settings()
-        )
-        if gst_settings is None or gst_settings.configuration_status != "ACTIVE":
-            raise ConflictError(
-                "Tax & GST settings are incomplete or awaiting CA confirmation. Complete and "
-                "activate them before checkout.",
-                error_code=TaxErrorCode.CONFIGURATION_INCOMPLETE,
-            )
-        tax_settings = (
-            await self.session.scalar(
-                select(TaxSettings).where(TaxSettings.tenant_id == self.tenant_id).with_for_update()
-            )
-            if for_update
-            else await self.tax.get_settings()
-        )
-        default_rate = tax_settings.tax_percentage if tax_settings else ZERO
-        seller_state = gst_settings.state_code
+        profile = await self.taxes.profile(for_update=for_update)
+        gst_settings = profile.settings
         if destination is not None:
             if destination.country.strip().lower() not in INDIA:
                 raise ConflictError(
@@ -636,93 +618,34 @@ class CheckoutService:
                     "A valid Indian state is required to classify GST for this delivery address.",
                     error_code=TaxErrorCode.CONFIGURATION_INCOMPLETE,
                 )
-        gst_type = supply_type(seller_state, destination.state if destination else None)
-
-        today = datetime.now(timezone.utc).date()
-        product_ids = [line.item.product_id for line in lines]
-        category_ids = [line.category_id for line in lines]
-        target_filters = []
-        if product_ids:
-            target_filters.append(TaxRateConfiguration.product_id.in_(product_ids))
-        if category_ids:
-            target_filters.append(TaxRateConfiguration.category_id.in_(category_ids))
-        mappings = (
-            await self.session.scalars(
-                select(TaxRateConfiguration)
-                .where(
-                    TaxRateConfiguration.tenant_id == self.tenant_id,
-                    TaxRateConfiguration.status == "ACTIVE",
-                    TaxRateConfiguration.ca_confirmed.is_(True),
-                    TaxRateConfiguration.effective_from <= today,
-                    or_(*target_filters),
-                )
-                .order_by(
-                    TaxRateConfiguration.effective_from.desc(),
-                    TaxRateConfiguration.created_at.desc(),
-                )
-            )
-        ).all()
-        product_rates: dict[UUID, TaxRateConfiguration] = {}
-        category_rates: dict[UUID, TaxRateConfiguration] = {}
-        for mapping in mappings:
-            target = product_rates if mapping.product_id else category_rates
-            key = mapping.product_id or mapping.category_id
-            if key is not None:
-                target.setdefault(key, mapping)
-
-        for line in lines:
-            mapping = product_rates.get(line.item.product_id) or category_rates.get(
-                line.category_id
-            )
-            if mapping is None:
-                raise ConflictError(
-                    "No active, CA-confirmed HSN and GST rate is configured for "
-                    f"{line.item.product_name}.",
-                    error_code=TaxErrorCode.RATE_NOT_FOUND,
-                )
-            line.item.hsn_code = mapping.hsn_code
-            line.item.gst_rate = mapping.gst_rate
-            line.item.tax_configuration_id = mapping.id
-
-        taxable_lines = [
-            TaxableLine(
+        tax_lines = [
+            TaxLineInput(
                 key=line.item.variant_id,
+                product_id=line.item.product_id,
+                category_id=line.category_id,
+                quantity=line.item.quantity,
                 amount=line.item.subtotal,
-                rate=line.item.gst_rate,
-                hsn_code=line.item.hsn_code,
-                prices_include_tax=gst_settings.prices_include_gst,
+                product_hsn=line.product_hsn,
+                product_rate=line.product_rate,
+                category_hsn=line.category_hsn,
+                category_rate=line.category_rate,
             )
             for line in lines
         ]
 
-        def require_charge_tax(charges: Decimal) -> None:
-            if charges > ZERO and (
-                tax_settings is None
-                or not tax_settings.is_active
-                or not tax_settings.confirmed_by_ca
-                or not gst_settings.shipping_sac_code
-            ):
-                raise ConflictError(
-                    "Shipping/COD tax is not confirmed. Configure its approved rate and SAC code "
-                    "before checkout.",
-                    error_code=TaxErrorCode.CONFIGURATION_INCOMPLETE,
-                )
-
-        def tax_for(charges: Decimal) -> TaxResult:
-            require_charge_tax(charges)
-            return compute_tax(
-                taxable_lines,
+        async def tax_for(charges: Decimal) -> TaxCalculation:
+            return await self.taxes.calculate(
+                tax_lines,
                 discount=discount,
                 charges=charges,
-                default_rate=default_rate,
-                active=True,
-                gst_type=gst_type,
+                buyer_state=destination.state if destination else None,
+                profile=profile,
             )
 
         cod: CodAvailability | None = None
         cod_fee = ZERO
         if payment_method is PaymentMethod.CASH_ON_DELIVERY:
-            before_fee = tax_for(shipping_charged)
+            before_fee = (await tax_for(shipping_charged)).result
             order_value = (
                 subtotal
                 - discount
@@ -738,20 +661,31 @@ class CheckoutService:
             if cod.available:
                 cod_fee = cod.fee
 
-        tax = tax_for(shipping_charged + cod_fee)
+        calculation = await tax_for(shipping_charged + cod_fee)
+        tax = calculation.result
         total = subtotal - discount + shipping_charged + cod_fee + tax.tax_amount - tax.included_tax
         advance = min(cod.advance_amount, total) if cod and cod.available else ZERO
 
         items = []
         for line in lines:
             share = tax.lines[line.item.variant_id]
+            resolution = calculation.resolutions[line.item.variant_id]
             items.append(
                 line.item.model_copy(
                     update={
+                        "hsn_code": resolution.hsn_code,
                         "gst_rate": share.rate,
+                        "tax_configuration_id": resolution.configuration_id,
                         "discount_amount": share.discount,
                         "taxable_amount": share.taxable,
                         "tax_amount": share.tax,
+                        "cgst_amount": share.cgst,
+                        "sgst_amount": share.sgst,
+                        "igst_amount": share.igst,
+                        "tax_rule_id": resolution.rule.id if resolution.rule else None,
+                        "tax_rule_code": resolution.rule_code,
+                        "tax_source": resolution.source,
+                        "tax_verification": resolution.verification,
                     }
                 )
             )
@@ -800,6 +734,8 @@ class CheckoutService:
             lines=lines,
             coupon=coupon,
             tax=tax,
+            calculation=calculation,
+            profile=profile,
             delivery=delivery,
             cod=cod,
             seller_gstin=gst_settings.gstin if gst_settings else None,
@@ -899,11 +835,12 @@ class CheckoutService:
                         subtotal=unit_price * cart_item.quantity,
                         compare_at_price=variant.price if is_on_sale(variant) else None,
                         hsn_code=product.hsn_code or (category.hsn_code if category else None),
-                        gst_rate=product.gst_rate
-                        if product.gst_rate is not None
-                        else (category.gst_rate if category else None),
                     ),
                     category_id=product.category_id,
+                    product_hsn=product.hsn_code,
+                    product_rate=product.gst_rate,
+                    category_hsn=category.hsn_code if category else None,
+                    category_rate=category.gst_rate if category else None,
                 )
             )
 
@@ -1066,6 +1003,11 @@ class OrderService:
                 error_code=OrderErrorCode.INVALID_STATUS,
             )
 
+        if shipment:
+            await self._require_no_courier_booking(order_id)
+        if new_status is OrderStatus.CANCELLED:
+            await self._require_no_courier_booking(order_id)
+
         if (
             order.payment_method != PaymentMethod.CASH_ON_DELIVERY.value
             and new_status in {
@@ -1196,7 +1138,10 @@ class OrderService:
         must keep the same GST supply type (same state relationship to the
         seller) and must be a pincode the store delivers to.
         """
-        order = await self.get(order_id)
+        order = await self.orders.lock(order_id)
+        if order is None:
+            raise NotFoundError(ORDER_NOT_FOUND, error_code=OrderErrorCode.NOT_FOUND)
+        await self._require_no_courier_booking(order_id)
         if OrderStatus(order.status) not in ADDRESS_EDITABLE_STATUSES:
             raise ConflictError(
                 f"The address of a {order.status} order can no longer be changed",
@@ -1260,12 +1205,29 @@ class OrderService:
 
     async def update_shipment(self, order_id: UUID, changes: dict) -> Order:
         """Set courier name, tracking number and/or tracking URL."""
-        order = await self.get(order_id)
+        order = await self.orders.lock(order_id)
+        if order is None:
+            raise NotFoundError(ORDER_NOT_FOUND, error_code=OrderErrorCode.NOT_FOUND)
+        await self._require_no_courier_booking(order_id)
         for field, value in changes.items():
             setattr(order, field, value)
         await self.session.commit()
 
         return await self.get(order.id)
+
+    async def _require_no_courier_booking(self, order_id: UUID) -> None:
+        active = await self.session.scalar(
+            select(Shipment.id).where(
+                Shipment.tenant_id == self.tenant_id,
+                Shipment.order_id == order_id,
+                Shipment.state != ShipmentState.CANCELLED.value,
+            )
+        )
+        if active is not None:
+            raise ConflictError(
+                "Cancel the active courier shipment before changing the delivery address, "
+                "manual tracking details, or cancelling this order."
+            )
 
     async def add_tracking_event(
         self,

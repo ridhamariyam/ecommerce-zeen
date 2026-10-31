@@ -31,6 +31,7 @@ from app.models.base import Base
 from app.orders.models import Order, OrderItem, OrderTrackingEvent
 from app.payments.models import Payment
 from app.pricing.models import (
+    GstDefaultRule,
     GstSettings,
     PincodeRule,
     ShippingSettings,
@@ -40,6 +41,7 @@ from app.pricing.models import (
 from app.ratings.models import Review, ReviewImage, ReviewRequest
 from app.returns.models import ReturnReason
 from app.search_filter.models import SearchHistory
+from app.shipments.models import Shipment, ShipmentEvent, ShippingProviderSettings
 from app.tenants.models import Tenant, TenantDomain
 from app.users.models import User, UserIdentity
 from app.wishlist.models import Wishlist, WishlistItem
@@ -75,6 +77,7 @@ __all__ = [
     "OrderTrackingEvent",
     "OtpRequest",
     "Payment",
+    "GstDefaultRule",
     "GstSettings",
     "PincodeRule",
     "Product",
@@ -88,6 +91,9 @@ __all__ = [
     "ReviewImage",
     "ReviewRequest",
     "SearchHistory",
+    "Shipment",
+    "ShipmentEvent",
+    "ShippingProviderSettings",
     "ShippingSettings",
     "TaxSettings",
     "TaxRateConfiguration",

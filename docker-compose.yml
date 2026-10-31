@@ -79,6 +79,27 @@ services:
       - -c
       - while true; do python -m app.commands.expire_orders || echo "order expiry run failed" >&2; sleep 300; done
 
+  # Shiprocket: refresh tracking that no webhook delivered, and look up
+  # bookings whose outcome was unknown. Does nothing until credentials are
+  # set and a store enables shipping.
+  shipment-sync:
+    build:
+      context: ./backend
+    container_name: tws_ec2_shipment_sync
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tws}:${POSTGRES_PASSWORD:-tws_dev_password}@postgres:5432/${POSTGRES_DB:-tws_ecommerce}
+      REDIS_URL: redis://redis:6379/0
+    command:
+      - sh
+      - -c
+      - while true; do python -m app.commands.sync_shipments || echo "shipment sync run failed" >&2; sleep 900; done
+
 volumes:
   postgres_data:
     name: tws_ec2_postgres_data

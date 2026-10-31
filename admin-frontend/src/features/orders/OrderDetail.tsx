@@ -26,6 +26,7 @@ import StatusMessage from "../../components/common/StatusMessage";
 import { useAction } from "../../hooks/useAction";
 import { useApi } from "../../hooks/useApi";
 import InvoiceModal from "./InvoiceModal";
+import ShipmentPanel from "./ShipmentPanel";
 import type { DeliveryAddress, Order, OrderStatus } from "../../types/order";
 import { NEXT_STATUSES, SHIPPING_LABEL_STATUSES } from "../../types/order";
 import { emptyToNull, formatDate, formatMoney, label } from "../../utils/formatters";
@@ -126,6 +127,8 @@ function OrderDetail() {
           </dl>
         </div>
       </div>
+
+      <ShipmentPanel orderId={o.id} currency={currency} canManage={canManage} onDone={reload} />
 
       <div className="panel order-detail-items detail-table-panel">
         <h3>Items</h3>

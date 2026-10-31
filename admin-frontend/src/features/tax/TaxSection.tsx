@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { downloadInvoicePdf, listOrders } from "../../api/orders";
-import { activateGst, approveTaxRate, confirmTax, createTaxRate, getGst, getGstReport, getTax, getTaxRateTargets, listTaxRates, updateGst, updateTax } from "../../api/tax";
+import { activateGst, approveTaxRate, confirmTax, createTaxRate, getGst, getGstDefaults, getGstReport, getProductTaxReview, getTax, getTaxRateTargets, listTaxRates, reviewGstDefaults, updateGst, updateTax } from "../../api/tax";
 import { useAuth } from "../../auth/AuthContext";
 import { P } from "../../auth/permissions";
 import StatCard from "../../components/common/StatCard";
@@ -32,11 +32,13 @@ function TaxSection() {
   const { pendingLeave, cancelLeave, discardLeave } = useUnsavedChanges(gstDirty || taxDirty, () => { setGstDirty(false); setTaxDirty(false); });
   return (
     <div className="tax-page">
-      <PageHeader title="Tax & GST settings" subtitle="Business tax details, accountant-confirmed product rates, and order tax records" />
+      <PageHeader title="Tax & GST settings" subtitle="Business tax details, system default rules, accountant-confirmed product rates, and order tax records" />
       <div className="tax-settings-grid">
         <GstForm canEdit={can(P.settingsManage)} onDirtyChange={setGstDirty} />
         <TaxSwitchForm canEdit={can(P.settingsManage)} onDirtyChange={setTaxDirty} />
       </div>
+      <DefaultRulesPanel canEdit={can(P.settingsManage)} />
+      <ProductTaxReviewPanel />
       <TaxRateManager canEdit={can(P.settingsManage)} />
       {can(P.reports) && <GstReportPanel />}
       {can(P.ordersView) && <InvoicesPanel />}
@@ -63,16 +65,18 @@ function GstSettingsForm({ initial, canEdit, onDirtyChange }: { initial: GstSett
   const gstinError = form.registration_status === "REGISTERED" && !form.gstin?.trim() ? "GSTIN is required for a registered business." : form.gstin?.trim() && !GSTIN.test(form.gstin.trim().toUpperCase()) ? "GSTIN must be 15 characters, e.g. 29ABCDE1234F1Z5." : null;
   const prefixError = !form.invoice_prefix.trim() ? "Invoice prefix is required." : null;
   const sacError = form.shipping_sac_code?.trim() && !SAC.test(form.shipping_sac_code.trim()) ? "Shipping SAC code must be 4, 6 or 8 digits." : null;
+  const fallback = form.fallback_gst_rate?.toString().trim() ?? "";
+  const fallbackError = fallback && !(Number(fallback) >= 0 && Number(fallback) <= 100) ? "Fallback rate must be between 0 and 100%." : null;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setAttempted(true);
     const gstin = form.gstin?.trim().toUpperCase() ?? "";
-    if (gstinError || prefixError || sacError) return;
+    if (gstinError || prefixError || sacError || fallbackError) return;
     const sac = form.shipping_sac_code?.trim() ?? "";
     setAttempted(false);
     action.run(async () => {
-      const r = await updateGst({ gstin: emptyToNull(gstin), legal_name: emptyToNull(form.legal_name ?? ""), address: emptyToNull(form.address ?? ""), state: emptyToNull(form.state ?? ""), invoice_prefix: form.invoice_prefix.trim(), shipping_sac_code: emptyToNull(sac), registration_status: form.registration_status, accounting_software: form.accounting_software, prices_include_gst: form.prices_include_gst });
+      const r = await updateGst({ gstin: emptyToNull(gstin), legal_name: emptyToNull(form.legal_name ?? ""), address: emptyToNull(form.address ?? ""), state: emptyToNull(form.state ?? ""), invoice_prefix: form.invoice_prefix.trim(), shipping_sac_code: emptyToNull(sac), registration_status: form.registration_status, accounting_software: form.accounting_software, prices_include_gst: form.prices_include_gst, gst_enabled: form.gst_enabled, default_classification: form.default_classification, fallback_gst_rate: emptyToNull(fallback) });
       setForm(r.data);
       setBaseline(JSON.stringify(r.data));
     }, "GST details saved", "Could not save GST details");
@@ -80,7 +84,8 @@ function GstSettingsForm({ initial, canEdit, onDirtyChange }: { initial: GstSett
   return (
     <form className="panel form" onSubmit={submit} noValidate>
       <h3>Business tax &amp; GST settings</h3>
-      <p className="muted">Changes return the tax configuration to Pending CA Confirmation. Checkout uses only active, CA-confirmed product/category rates.</p>
+      <p className="muted">Checkout uses CA-confirmed product/category rates first, then rates typed on a product or category, then the system default rules below. Saving returns the business details to Pending CA Confirmation.</p>
+      {form.is_system_default && <p className="tax-classification-note">Nothing has been saved yet: the store is using the system defaults (GST on, apparel assumed, prices exclusive of GST). No GSTIN, state or legal name has been assumed.</p>}
       <StatusMessage status={action.status} />
       <fieldset disabled={!canEdit} className="form-grid" style={{ border: 0, padding: 0, margin: 0 }}>
         <Field label="GSTIN" error={attempted ? gstinError : null}><input value={form.gstin ?? ""} onChange={set("gstin")} /></Field>
@@ -91,15 +96,101 @@ function GstSettingsForm({ initial, canEdit, onDirtyChange }: { initial: GstSett
         <Field label="Shipping SAC code" error={attempted ? sacError : null}><input value={form.shipping_sac_code ?? ""} onChange={set("shipping_sac_code")} /></Field>
         <Field label="Accounting software"><select value={form.accounting_software ?? "NOT_DECIDED"} onChange={(e) => setForm({ ...form, accounting_software: e.target.value as GstSettings["accounting_software"] })}><option value="TALLY">Tally</option><option value="ZOHO_BOOKS">Zoho Books</option><option value="OTHER">Other</option><option value="NONE">None</option><option value="NOT_DECIDED">Not Decided</option></select></Field>
         <Field label="Prices include GST" hint="Yes extracts GST from the displayed product price. No adds approved GST to the product price at checkout."><select value={String(!!form.prices_include_gst)} onChange={(e) => setForm({ ...form, prices_include_gst: e.target.value === "true" })}><option value="true">Yes</option><option value="false">No</option></select></Field>
+        <Field label="Charge GST" hint="No charges no GST at all. A store that is Not Registered never charges GST."><select value={String(form.gst_enabled ?? true)} onChange={(e) => setForm({ ...form, gst_enabled: e.target.value === "true" })}><option value="true">Yes</option><option value="false">No</option></select></Field>
+        <Field label="Assume classification" hint="Used for products with no HSN code. Every such line is flagged for review."><select value={form.default_classification ?? ""} onChange={(e) => setForm({ ...form, default_classification: e.target.value ? "APPAREL" : null })}><option value="APPAREL">Apparel (HSN 61/62)</option><option value="">Nothing - use the fallback rate</option></select></Field>
+        <Field label="Fallback rate %" error={attempted ? fallbackError : null} hint="For products no rule classifies. Blank uses the system fallback."><input type="number" min="0" max="100" step="0.01" value={form.fallback_gst_rate ?? ""} onChange={(e) => setForm({ ...form, fallback_gst_rate: e.target.value })} /></Field>
         <Field label="Registered address" wide><textarea value={form.address ?? ""} onChange={set("address")} /></Field>
       </fieldset>
-      {attempted && (gstinError || prefixError || sacError) && <div className="status status-error" role="alert">Please correct the GST details before continuing.</div>}
+      {attempted && (gstinError || prefixError || sacError || fallbackError) && <div className="status status-error" role="alert">Please correct the GST details before continuing.</div>}
       {canEdit && <div className="form-actions"><button className="primary" disabled={action.busy}>Save</button></div>}
       <div className="tax-activation">
         <p><strong>Status:</strong> {label(form.configuration_status ?? "DRAFT")}{form.updated_at ? ` · Updated ${formatDate(form.updated_at)}` : ""}{form.updated_by_id ? ` · Admin ${form.updated_by_id}` : ""}</p>
         {canEdit && form.configuration_status !== "ACTIVE" && <><label className="check"><input type="checkbox" checked={caConfirmed} onChange={(e) => setCaConfirmed(e.target.checked)} /> CA/accountant has confirmed the business tax setup</label><button type="button" disabled={!caConfirmed || action.busy} onClick={() => action.run(async () => { const r = await activateGst(); setForm(r.data); setBaseline(JSON.stringify(r.data)); setCaConfirmed(false); }, "Tax configuration activated", "Could not activate tax configuration")}>Activate configuration</button></>}
       </div>
     </form>
+  );
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  APPROVED_OVERRIDE: "CA-confirmed override",
+  MANUAL: "Manually configured",
+  SYSTEM_DEFAULT: "System default",
+  FALLBACK: "Fallback",
+  DISABLED: "GST off",
+};
+
+const band = (min: string | null, max: string | null) =>
+  min && max ? `${formatMoney(min)} - ${formatMoney(max)}` : max ? `Up to ${formatMoney(max)}` : min ? `Above ${formatMoney(min)}` : "Any value";
+
+// The platform's rules are read-only here: a store changes its tax through its own settings and overrides.
+function DefaultRulesPanel({ canEdit }: { canEdit: boolean }) {
+  const defaults = useApi(() => getGstDefaults(), []);
+  const [showHistory, setShowHistory] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const action = useAction();
+  const d = defaults.data;
+  const rules = d ? d.rules.filter((rule) => showHistory || rule.in_force) : null;
+  return (
+    <section className="panel tax-defaults-panel">
+      <div className="panel-title">
+        <h3>System default GST rules</h3>
+        {d && <Badge value={d.status} />}
+      </div>
+      <p className="muted tax-help">Starting rules provided by the platform, applied when a product has no confirmed or manual rate. They are not legal confirmation: review them with your CA. Per-piece value is after discounts and before GST.</p>
+      <StatusMessage status={action.status} />
+      <label className="check"><input type="checkbox" checked={showHistory} onChange={(e) => setShowHistory(e.target.checked)} /> Show past rules</label>
+      <DataTable
+        rows={defaults.loading ? null : rules}
+        loading={defaults.loading}
+        error={defaults.error}
+        empty="No default rules are configured."
+        rowKey={(rule) => rule.id}
+        columns={[
+          { key: "description", header: "Rule", render: (rule) => <span title={rule.source ?? undefined}>{rule.description}</span> },
+          { key: "hsn_prefixes", header: "HSN", render: (rule) => (rule.is_fallback ? "Unclassified" : rule.hsn_prefixes.join(", ")) },
+          { key: "band", header: "Value per piece", render: (rule) => band(rule.min_unit_value, rule.max_unit_value) },
+          { key: "gst_rate", header: "Rate %", align: "right", render: (rule) => rule.is_fallback && d?.fallback_gst_rate ? `${d.fallback_gst_rate} (store)` : rule.gst_rate },
+          { key: "effective_from", header: "Effective", render: (rule) => `${formatDate(rule.effective_from)}${rule.effective_to ? ` - ${formatDate(rule.effective_to)}` : " onwards"}` },
+          { key: "verification_status", header: "Status", render: (rule) => <Badge value={rule.verification_status} /> },
+        ]}
+      />
+      {d && (
+        <div className="tax-activation">
+          <p><strong>Review:</strong> {d.status === "REVIEWED" ? `Reviewed ${formatDate(d.reviewed_at ?? "")}` : "Awaiting verification by the store"} · Assumed classification: {d.default_classification ? label(d.default_classification) : "none"} · Fallback rate: {d.fallback_gst_rate ?? d.system_fallback_rate ?? "-"}%</p>
+          {canEdit && d.status !== "REVIEWED" && <><label className="check"><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> We have checked these rules and our assumed classification with our CA/accountant</label><button type="button" disabled={!confirmed || action.busy} onClick={() => action.run(async () => { await reviewGstDefaults(true); setConfirmed(false); defaults.reload(); }, "Default rules marked as reviewed", "Could not save the review")}>Mark defaults reviewed</button></>}
+          {canEdit && d.status === "REVIEWED" && <button type="button" disabled={action.busy} onClick={() => action.run(async () => { await reviewGstDefaults(false); defaults.reload(); }, "Review withdrawn", "Could not withdraw the review")}>Withdraw review</button>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProductTaxReviewPanel() {
+  const [flagged, setFlagged] = useState(true);
+  const review = useApi(() => getProductTaxReview(flagged), [flagged]);
+  return (
+    <section className="panel tax-review-panel">
+      <div className="panel-title">
+        <h3>Product tax review</h3>
+        <label className="check"><input type="checkbox" checked={flagged} onChange={(e) => setFlagged(e.target.checked)} /> Only products needing review</label>
+      </div>
+      <p className="muted tax-help">How each product is taxed today at its current variant prices, before coupons. Add an HSN code to the product or category, or a CA-confirmed rate below, to resolve a flag.</p>
+      <DataTable
+        rows={review.loading ? null : review.data}
+        loading={review.loading}
+        error={review.error}
+        empty={flagged ? "No product needs tax review." : "No products yet."}
+        rowKey={(row) => row.product_id}
+        columns={[
+          { key: "product_name", header: "Product" },
+          { key: "category_name", header: "Category", render: (row) => row.category_name ?? "-" },
+          { key: "hsn_code", header: "HSN", render: (row) => row.hsn_code ?? <span className="muted">Not set</span> },
+          { key: "rates", header: "Rate %", align: "right", render: (row) => row.rates.join(" / ") },
+          { key: "source", header: "Source", render: (row) => <span title={row.reason}>{SOURCE_LABELS[row.source] ?? label(row.source)}</span> },
+          { key: "verification", header: "Status", render: (row) => <Badge value={row.verification} /> },
+        ]}
+      />
+    </section>
   );
 }
 

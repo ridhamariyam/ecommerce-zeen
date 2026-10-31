@@ -14,6 +14,7 @@ from app.auth.permissions import Permission
 from app.core.config import get_settings
 from app.core.responses import ApiResponse, ok
 from app.integrations.schemas import IntegrationStatus
+from app.shipments import shiprocket
 from app.users.models import User
 
 router = APIRouter(prefix="/admin/integrations", tags=["Admin-Integrations"])
@@ -21,9 +22,12 @@ router = APIRouter(prefix="/admin/integrations", tags=["Admin-Integrations"])
 
 
 
-def _entry(key, name, purpose, settings_names, integrated, note) -> IntegrationStatus:
+def _entry(
+    key, name, purpose, settings_names, integrated, note, *, configured=None
+) -> IntegrationStatus:
     settings = get_settings()
-    configured = all(getattr(settings, field, None) for field in settings_names)
+    if configured is None:
+        configured = all(getattr(settings, field, None) for field in settings_names)
     if integrated and configured:
         status = "ACTIVE"
     elif configured:
@@ -75,9 +79,13 @@ async def list_integrations(
                 "shiprocket",
                 "Shiprocket",
                 "Courier booking, AWB labels, live tracking, serviceability",
-                ["shiprocket_email", "shiprocket_password"],
-                False,
-                "Tracking numbers, scans and pincode rules are entered by staff meanwhile.",
+                ["shiprocket_email", "shiprocket_password", "shiprocket_tenant_id"],
+                True,
+                "Booking, AWB, labels, pickups, manifests, cancellation and tracking "
+                "(webhook + periodic sync). Each store enables it under Settings > Shipping "
+                "provider. Webhooks need SHIPROCKET_WEBHOOK_TOKEN. Checkout still charges "
+                "the configured delivery rate, not a live courier quote.",
+                configured=shiprocket.is_configured(user.tenant_id),
             ),
             _entry(
                 "msg91_customer_otp",

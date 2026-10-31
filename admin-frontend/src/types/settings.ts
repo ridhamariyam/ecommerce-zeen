@@ -36,6 +36,12 @@ export interface GstSettings {
   accounting_software: "TALLY" | "ZOHO_BOOKS" | "OTHER" | "NONE" | "NOT_DECIDED";
   configuration_status: "DRAFT" | "PENDING_CA_CONFIRMATION" | "ACTIVE";
   prices_include_gst: boolean;
+  gst_enabled: boolean;
+  default_classification: "APPAREL" | null;
+  fallback_gst_rate: string | null;
+  defaults_reviewed_at: string | null;
+  defaults_reviewed_by_id: string | null;
+  is_system_default?: boolean;
   updated_at: string | null;
   updated_by_id: string | null;
   confirmed_at: string | null;
@@ -57,6 +63,49 @@ export interface TaxRateConfiguration {
   created_by_id?: string | null;
   approved_by_id?: string | null;
   created_at: string;
+}
+
+export interface GstDefaultRule {
+  id: string;
+  code: string;
+  classification: string;
+  description: string;
+  hsn_prefixes: string[];
+  min_unit_value: string | null;
+  max_unit_value: string | null;
+  gst_rate: string;
+  effective_from: string;
+  effective_to: string | null;
+  is_fallback: boolean;
+  verification_status: "UNVERIFIED" | "VERIFIED";
+  source: string | null;
+  in_force: boolean;
+}
+
+export interface GstDefaults {
+  rules: GstDefaultRule[];
+  default_classification: string | null;
+  fallback_gst_rate: string | null;
+  system_fallback_rate: string | null;
+  reviewed_at: string | null;
+  reviewed_by_id: string | null;
+  status: "AWAITING_VERIFICATION" | "REVIEWED";
+}
+
+export type TaxSource = "APPROVED_OVERRIDE" | "MANUAL" | "SYSTEM_DEFAULT" | "FALLBACK" | "DISABLED";
+export type TaxVerification = "VERIFIED" | "AWAITING_VERIFICATION" | "NEEDS_REVIEW" | "NOT_APPLICABLE";
+
+export interface ProductTaxReview {
+  product_id: string;
+  product_name: string;
+  category_name: string | null;
+  hsn_code: string | null;
+  source: TaxSource;
+  verification: TaxVerification;
+  rule_codes: string[];
+  rates: string[];
+  reason: string;
+  needs_review: boolean;
 }
 
 export interface TaxRateTargets {

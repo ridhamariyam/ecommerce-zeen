@@ -30,3 +30,6 @@
 .tax-page .tax-rate-form button { align-self: end; min-height: 38px; }
 @media (max-width: 1000px) { .tax-page .tax-settings-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .tax-page .tax-date-filters .field { flex: 1 1 130px; max-width: none; } }
+.tax-page .tax-defaults-panel, .tax-page .tax-review-panel { display: grid; gap: 8px; }
+.tax-page .tax-defaults-panel .table-wrap, .tax-page .tax-review-panel .table-wrap { max-height: min(40dvh, 320px); overflow: auto; overscroll-behavior: contain; }
+.tax-page .tax-review-panel .panel-title { flex-wrap: wrap; gap: 8px; }

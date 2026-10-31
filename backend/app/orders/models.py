@@ -261,6 +261,10 @@ class Order(IdMixin, TenantMixin, TimestampMixin, Base):
         Boolean, nullable=False, default=False, server_default="false"
     )
     gst_registration_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # True when any line was taxed at a rate the store has not verified yet.
+    tax_review_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     estimated_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
@@ -373,6 +377,7 @@ class OrderItem(IdMixin, TenantMixin, TimestampMixin, Base):
         ),
         Index("ix_order_items_tenant_id_order_id", "tenant_id", "order_id"),
         Index("ix_order_items_tax_configuration_id", "tax_configuration_id"),
+        Index("ix_order_items_tax_rule_id", "tax_rule_id"),
     )
 
     order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -422,6 +427,27 @@ class OrderItem(IdMixin, TenantMixin, TimestampMixin, Base):
     tax_amount: Mapped[Decimal | None] = mapped_column(
         Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
     )
+    # The rest of the tax snapshot: the split, and which rule (version) set the
+    # rate and how sure the store was of it. NULL on orders placed before these.
+    cgst_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
+    )
+    sgst_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
+    )
+    igst_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
+    )
+    tax_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "gst_default_rules.id", name="fk_order_items_tax_rule", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
+    tax_rule_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    tax_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tax_verification: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
 class OrderTrackingEvent(IdMixin, TenantMixin, TimestampMixin, Base):

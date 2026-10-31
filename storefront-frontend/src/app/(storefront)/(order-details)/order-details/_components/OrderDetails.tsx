@@ -14,7 +14,7 @@ import { cancelOrder } from '@/lib/orders/actions';
 import { initialCheckoutState } from '@/lib/orders/state';
 import { ORDER_STEPS, orderStatusMeta, orderStepIndex, paymentStatusMeta, type StatusTone } from '@/lib/orders/status';
 import { paymentMethodLabel } from '@/lib/payments/online';
-import type { Order, OrderStatus, Payment, TrackingEvent } from '@/types/orders';
+import type { CourierTracking, Order, OrderStatus, Payment, TrackingEvent } from '@/types/orders';
 
 import styles from './OrderDetails.module.css';
 
@@ -189,10 +189,12 @@ export default function OrderDetails({
   order,
   products,
   events,
+  courier,
 }: {
   order: Order;
   products: OrderItemProducts;
   events: TrackingEvent[];
+  courier?: CourierTracking | null;
 }) {
   const router = useRouter();
   const { addToCart, pending: cartPending } = useCart();
@@ -204,7 +206,7 @@ export default function OrderDetails({
   const payment = paymentStatusMeta(order.payment_status);
   const address = order.delivery_address;
   const shipment = order.shipment;
-  const trackingUrl = safeUrl(shipment?.tracking_url);
+  const trackingUrl = safeUrl(courier?.tracking_url ?? shipment?.tracking_url);
   const timeline = buildTimeline(order, events);
   const history = [...events].reverse();
   const unitCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -372,12 +374,18 @@ export default function OrderDetails({
                 ))}
               </ol>
 
-              {(order.estimated_delivery_date && !NO_ESTIMATE.includes(order.status)) ||
+              {courier && <dl className={styles.shipmentGrid}>
+                <div><dt>Courier delivery status</dt><dd>{courier.status_label ?? courier.state.toLowerCase().replaceAll('_', ' ')}</dd></div>
+                {courier.provider_etd && !NO_ESTIMATE.includes(order.status) && <div><dt>Courier delivery estimate</dt><dd>{courier.provider_etd}</dd></div>}
+                {courier.last_event_at && <div><dt>Last courier update</dt><dd>{formatDateTime(courier.last_event_at)}</dd></div>}
+              </dl>}
+
+              {(order.estimated_delivery_date && !courier && !NO_ESTIMATE.includes(order.status)) ||
               shipment?.courier_name ||
               shipment?.tracking_number ||
               order.return_reason ? (
                 <dl className={styles.shipmentGrid}>
-                  {order.estimated_delivery_date && !NO_ESTIMATE.includes(order.status) && (
+                  {order.estimated_delivery_date && !courier && !NO_ESTIMATE.includes(order.status) && (
                     <div>
                       <dt>Estimated delivery</dt>
                       <dd>{formatDate(order.estimated_delivery_date)}</dd>

@@ -16,6 +16,7 @@ from app.pricing.constants import (
     DEFAULT_INVOICE_PREFIX,
     DEFAULT_MAX_DELIVERY_DAYS,
     DEFAULT_MIN_DELIVERY_DAYS,
+    DEFAULT_TAX_CLASSIFICATION,
     GSTIN_PATTERN,
     MAX_DELIVERY_DAYS,
     MAX_TAX_PERCENTAGE,
@@ -174,6 +175,15 @@ class GstSettingsUpdate(StrictModel):
     )
     configuration_status: Literal["DRAFT", "PENDING_CA_CONFIRMATION", "ACTIVE"] = "DRAFT"
     prices_include_gst: bool = False
+    gst_enabled: bool = True
+    default_classification: Literal["APPAREL"] | None = Field(
+        default=DEFAULT_TAX_CLASSIFICATION,
+        description="Classification assumed for products without an HSN code; null assumes none",
+    )
+    fallback_gst_rate: Decimal | None = Field(
+        default=None, ge=0, le=MAX_TAX_PERCENTAGE, decimal_places=2,
+        description="Rate for unclassified products; null keeps the system fallback",
+    )
 
     @field_validator("gstin")
     @classmethod
@@ -193,10 +203,72 @@ class GstSettingsRead(BaseModel):
     accounting_software: str = "NOT_DECIDED"
     configuration_status: str = "DRAFT"
     prices_include_gst: bool = False
+    gst_enabled: bool = True
+    default_classification: str | None = DEFAULT_TAX_CLASSIFICATION
+    fallback_gst_rate: Decimal | None = None
+    defaults_reviewed_at: datetime | None = None
+    defaults_reviewed_by_id: UUID | None = None
+    # True when the settings row does not exist yet and platform defaults apply.
+    is_system_default: bool = False
     updated_at: datetime | None = None
     updated_by_id: UUID | None = None
     confirmed_at: datetime | None = None
     confirmed_by_id: UUID | None = None
+
+
+class GstDefaultRuleRead(BaseModel):
+    id: UUID
+    code: str
+    classification: str
+    description: str
+    hsn_prefixes: list[str]
+    min_unit_value: Decimal | None
+    max_unit_value: Decimal | None
+    gst_rate: Decimal
+    effective_from: date
+    effective_to: date | None
+    is_fallback: bool
+    verification_status: str
+    source: str | None
+    in_force: bool = False
+
+
+class GstDefaultsRead(BaseModel):
+    """The system rules, and this tenant's review of them."""
+
+    rules: list[GstDefaultRuleRead]
+    default_classification: str | None
+    fallback_gst_rate: Decimal | None
+    system_fallback_rate: Decimal | None
+    reviewed_at: datetime | None = None
+    reviewed_by_id: UUID | None = None
+    status: Literal["AWAITING_VERIFICATION", "REVIEWED"]
+
+
+class GstDefaultsReview(StrictModel):
+    reviewed: bool = Field(description="The store has checked the default rules apply to it")
+
+
+class ProductTaxReviewRead(BaseModel):
+    """How one product's variants are taxed today, and whether that needs a look."""
+
+    product_id: UUID
+    product_name: str
+    category_name: str | None = None
+    hsn_code: str | None = None
+    source: str
+    verification: str
+    rule_codes: list[str] = []
+    rates: list[Decimal]
+    reason: str
+    needs_review: bool
+
+
+class StorefrontTaxInfo(BaseModel):
+    """What the storefront may say about tax -- no registration details."""
+
+    gst_enabled: bool
+    prices_include_gst: bool
 
 
 class TaxRateConfigurationWrite(StrictModel):

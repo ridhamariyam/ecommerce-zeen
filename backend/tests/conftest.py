@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import AuthenticationError
 from app.models.registry import Base
+from app.pricing.defaults import ensure_default_rules
 from app.tenants.models import Tenant, TenantDomain
 from app.users.models import User
 from tests.helpers import shared_data
@@ -217,6 +218,8 @@ async def session(engine) -> AsyncGenerator[AsyncSession, None]:
 
     factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
+        # The migration seeds the system GST rules; create_all does not.
+        await ensure_default_rules(session)
         yield session
 
 

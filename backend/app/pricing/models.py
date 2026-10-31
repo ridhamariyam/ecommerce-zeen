@@ -17,7 +17,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.catalogue.constants import PRICE_PRECISION, PRICE_SCALE
@@ -26,7 +26,9 @@ from app.pricing.constants import (
     DEFAULT_INVOICE_PREFIX,
     DEFAULT_MAX_DELIVERY_DAYS,
     DEFAULT_MIN_DELIVERY_DAYS,
+    DEFAULT_TAX_CLASSIFICATION,
     MAX_TAX_PERCENTAGE,
+    RULE_UNVERIFIED,
 )
 
 TAX_PRECISION = 5
@@ -185,6 +187,87 @@ class GstSettings(IdMixin, TenantMixin, TimestampMixin, Base):
         nullable=True,
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # False: the store charges no GST at all (e.g. not registered).
+    gst_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    # Classification assumed for a product with no HSN code; NULL assumes nothing,
+    # so such products fall back. Each line priced this way is flagged for review.
+    default_classification: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, default=DEFAULT_TAX_CLASSIFICATION,
+        server_default=DEFAULT_TAX_CLASSIFICATION,
+    )
+    # Replaces the system fallback rate for this tenant; NULL keeps the system one.
+    fallback_gst_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(TAX_PRECISION, TAX_SCALE), nullable=True
+    )
+    # The tenant's sign-off on the system default rules and its assumed classification.
+    defaults_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    defaults_reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "users.id", name="fk_gst_settings_defaults_reviewed_by_users", ondelete="SET NULL"
+        ),
+        nullable=True,
+    )
+
+
+class GstDefaultRule(IdMixin, TimestampMixin, Base):
+    """A platform-wide GST rule, shared read-only by every tenant.
+
+    A rule covers one classification (matched by HSN prefix, or assumed by the
+    store), a per-piece value band (above `min_unit_value`, up to and including
+    `max_unit_value`) and an effective date range. Rows are seeded by migration
+    and never edited by a tenant: a tenant changes its tax through its own
+    settings and overrides, so nothing here can leak between stores. A rule that
+    changes gets a new row with a new `effective_from`, so old orders keep
+    pointing at the version they were taxed under.
+    """
+
+    __tablename__ = "gst_default_rules"
+
+    __table_args__ = (
+        UniqueConstraint("code", "effective_from", name="uq_gst_default_rules_code_effective"),
+        CheckConstraint("gst_rate >= 0 AND gst_rate <= 100", name="gst_rate_in_range"),
+        CheckConstraint(
+            "min_unit_value IS NULL OR max_unit_value IS NULL OR max_unit_value > min_unit_value",
+            name="value_band_ordered",
+        ),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to >= effective_from", name="dates_ordered"
+        ),
+        CheckConstraint(
+            "verification_status IN ('UNVERIFIED', 'VERIFIED')", name="verification_status_valid"
+        ),
+        Index("ix_gst_default_rules_classification", "classification", "effective_from"),
+    )
+
+    code: Mapped[str] = mapped_column(String(60), nullable=False)
+    classification: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str] = mapped_column(String(300), nullable=False)
+    # HSN prefixes the rule covers (e.g. chapter "61"); empty for the fallback.
+    hsn_prefixes: Mapped[list[str]] = mapped_column(
+        ARRAY(String(8)), nullable=False, default=list, server_default="{}"
+    )
+    min_unit_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
+    )
+    max_unit_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=True
+    )
+    gst_rate: Mapped[Decimal] = mapped_column(Numeric(TAX_PRECISION, TAX_SCALE), nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_fallback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    verification_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=RULE_UNVERIFIED, server_default=RULE_UNVERIFIED
+    )
+    source: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
 
 class TaxSettings(IdMixin, TenantMixin, TimestampMixin, Base):

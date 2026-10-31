@@ -3,6 +3,9 @@
 Multi-tenant e-commerce SaaS backend. FastAPI, async SQLAlchemy on PostgreSQL,
 Redis for caching and rate limiting.
 
+Shiprocket fulfilment setup, workflow, API endpoints and validation:
+[Shipping integration guide](docs/shiprocket.md).
+
 ## Quick start
 
 ```bash

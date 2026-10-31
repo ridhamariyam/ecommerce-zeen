@@ -22,6 +22,7 @@ from app.orders.schemas import (
 from app.payments.serializers import payment_read
 from app.pricing.gst import split_tax, state_code_for
 from app.pricing.models import GstSettings
+from app.shipments.schemas import CustomerShipmentRead
 
 
 def delivery_address(order: Order) -> DeliveryAddressRead:
@@ -79,6 +80,8 @@ def order_read(order: Order, currency: str) -> OrderRead:
         payment=payment_read(order.payment, currency) if order.payment else None,
         payments=[payment_read(payment, currency) for payment in order.payments],
         gst=gst_breakdown(order),
+        prices_include_gst=order.prices_include_gst,
+        tax_review_required=order.tax_review_required,
         delivery_address=delivery_address(order),
         contact_email=order.contact_email,
         is_guest=order.is_guest,
@@ -104,7 +107,7 @@ def order_summary_read(order: Order, currency: str) -> OrderSummaryRead:
     )
 
 
-def tracking_read(order: Order) -> OrderTrackingRead:
+def tracking_read(order: Order, courier: CustomerShipmentRead | None = None) -> OrderTrackingRead:
     return OrderTrackingRead(
         order_number=order.order_number,
         status=order.status,
@@ -120,6 +123,7 @@ def tracking_read(order: Order) -> OrderTrackingRead:
             )
             for event in order.tracking_events
         ],
+        courier=courier,
     )
 
 
@@ -137,7 +141,10 @@ def invoice_read(order: Order, seller: GstSettings | None, currency: str) -> Inv
         taxable = item.taxable_amount if item.taxable_amount is not None else item.subtotal
         tax = (item.tax_amount or ZERO) if tax_split_known else ZERO
         goods_tax += tax
-        if tax_split_known:
+        if tax_split_known and item.cgst_amount is not None:
+            # Frozen at checkout; older lines are split again below.
+            cgst, sgst, igst = item.cgst_amount, item.sgst_amount, item.igst_amount
+        elif tax_split_known:
             cgst, sgst, igst = split_tax(tax, order.gst_type)
         else:
             cgst, sgst, igst = ZERO, ZERO, ZERO

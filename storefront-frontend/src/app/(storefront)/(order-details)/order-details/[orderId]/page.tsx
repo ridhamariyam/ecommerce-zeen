@@ -61,7 +61,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ o
 
   return (
     <>
-      <OrderDetails order={order} products={catalogue} events={tracking?.events ?? []} />
+      <OrderDetails order={order} products={catalogue} events={tracking?.events ?? []} courier={tracking?.courier ?? null} />
       <MobileBottomNav />
     </>
   );

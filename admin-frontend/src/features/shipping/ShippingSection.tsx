@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { bulkPincodes, deletePincode, getShipping, listPincodes, savePincode, updateShipping } from "../../api/shipping";
 import { useAuth } from "../../auth/AuthContext";
 import { P } from "../../auth/permissions";
@@ -17,6 +16,7 @@ import { useApi } from "../../hooks/useApi";
 import type { PincodeRule, ShippingSettings } from "../../types/settings";
 import { emptyToNull, formatMoney } from "../../utils/formatters";
 import { PIN, parsePincodeCsv } from "./pincodeCsv";
+import ProviderSettings from "./ProviderSettings";
 import "./shipping.css";
 
 
@@ -26,7 +26,7 @@ function ShippingSection() {
   return (
     <div className="delivery-page">
       <PageHeader title="Delivery" subtitle="Shipping charges, delivery estimates and serviceable pincodes" />
-      <div className="notice">Courier booking and tracking are entered manually until Shiprocket is connected. <Link to="/integrations">View integration setup</Link>.</div>
+      <ProviderSettings canEdit={canEdit} />
       <ShippingRules canEdit={canEdit} />
       <Pincodes canEdit={canEdit} />
     </div>
